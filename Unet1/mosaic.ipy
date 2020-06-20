@@ -1,0 +1,182 @@
+    """
+    A collection of tools to tile images for the use with a fully convolutional network
+    """
+
+#%% Imports 
+import PIL
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import tensorflow as tf 
+
+#%% Define a tool for visual control of tiling patterns
+# Use of patch rectangles added to a patch collection as seen in 
+# https://matplotlib.org/3.1.1/gallery/statistics/errorbars_and_boxes.html#sphx-glr-gallery-statistics-errorbars-and-boxes-py
+
+def showTiling(image, bounding_boxes):
+    """Draw an image and visualize a collection of bounding boxes
+
+    Parameters
+    ----------
+    image : image tensor
+        The image to show as a background for the tiling layout
+    bounding_boxes : list
+        a list of bounding boxes specified as 4-tuples (x,y,w,h) in image coordinates where x,y denote the coordinates of the top left corner and w,h the width and height of the bounding box
+    """
+    plt.figure(figsize=(10,10))
+    plt.imshow(image, origin='upper')
+    rectangles = []
+    for box in bounding_boxes:
+        box = image_to_plot(box) # transform to plot coordinates
+        rect = plt.Rectangle(box[0:2], box[2], box[3], fill=False)
+        plt.gca().add_patch(rect)
+    
+    plt.show()
+
+def rectangularTiling(image_shape, rectangle):
+    """
+    Completely covers a target image with a rectangular tile
+
+    Parameters
+    ----------
+    image_shape : tuple
+        the dimensions of the image that should be tiled
+    rectangle : tuple
+        the dimensions of the rectangular tile (x,y)
+
+    Returns
+    -------
+    list
+        list of bounding boxes specified as 4-tuples (x,y,w,h)
+    """
+    rows = np.ceil(image_shape[0]/rectangle[0]).astype(int)
+    cols = np.ceil(image_shape[1]/rectangle[1]).astype(int)
+    #print('rows {} cols {}'.format(rows,cols))
+    boxes = []
+    for r in range(rows):
+        # y coordinate of top left corner
+        x = r * rectangle[0]
+        for c in range(cols):
+            # x coordinate of top left corner
+            y = c * rectangle[1]
+            # Add bounding box to collection of tiles
+            bb = (x,y,rectangle[0],rectangle[1]) # (x,y,w,h) in image coordinates
+            boxes.append( bb ) #(x,y,w,h)
+    
+    return boxes
+
+#%% Tests
+
+test_image = tf.keras.preprocessing.image.load_img('../images/Abyssinian_1.jpg')
+test_image = tf.keras.preprocessing.image.img_to_array(test_image)/255
+aabb = rectangularTiling(test_image.shape,(100,200))
+showTiling(test_image,aabb)
+
+# %% Experiment to find out alignment of graphical and plot coordinate system
+test_image = tf.keras.preprocessing.image.load_img('../images/Abyssinian_1.jpg')
+test_image = tf.keras.preprocessing.image.img_to_array(test_image)/255
+test_image[10:20,50:200,:] = np.zeros((10,150,3))
+plt.imshow(test_image)
+bb = (50,100,10,200)
+bb_adj = image_to_plot(bb)
+plt.gca().add_patch(plt.Rectangle(bb[0:2],bb[2],bb[3], color='blue'))
+plt.gca().add_patch(plt.Rectangle(bb_adj[0:2],bb_adj[2],bb_adj[3], color='red'))
+plt.xlabel('x Axis')
+plt.ylabel('y Axis')
+plt.text(10, 360, 'Black rect: (10,50,10,150) in image coords\nBlue rect: (50,100,10,200) in plot coords\nRed rect: (50,100,10,200) transposed to image coords')
+plt.title('Coordinate systems in plt.imshow()')
+plt.savefig('Coordinate Systems.png')
+#%%
+def image_to_plot(bounding_box):
+    """
+    Converts a bounding box in the image coordinate system to an annotation in plt.imshow()
+
+    Parameters
+    ----------
+    bounding_box : tuple
+        bounding box in 4-tuple format in image coordinate system. (origin top left on screen. X points down Y points right)
+    """
+    (x_img, y_img, w_img, h_img) = bounding_box # Image coord system
+    return (y_img, x_img, h_img, w_img) # Plot coord system (x,y,w,h)
+
+
+# %% Extract imag patches given by a list of bounding boxes
+def getImageTiles(image, boundingBoxes):
+    tiles = [] # construct list of image tensors
+    for bb in boundingBoxes:
+        #print('cropping {}'.format(bb))
+        tiles.append(tf.image.crop_to_bounding_box(image, bb[0], bb[1], bb[2], bb[3]))
+    return tiles
+
+def showTiles(tiles):
+    n = len(tiles)
+    fig, ax = plt.subplots(n, sharex=True, figsize=(8,16))
+    for i in range(n):
+        ax[i].imshow(tiles[i])
+
+# %%
+test_tiles = getImageTiles(test_image, aabb)
+showTiles(test_tiles)
+
+# %%    
+def tileUnet(image_shape, input_shape, output_shape):
+    """
+    Tiles an image with the output shape of the Unet. 
+    For each output region the corresponding input region is calculated.
+    It is assumed that the output region is centered within the input region with the same number of bordering pixels on opposing sides.
+
+  Parameters
+    ----------
+    image_shape : tuple
+        dimension of the target image 
+    input_shape : tuple
+        dimension of the input region evaluated by the unet
+    output_shape : tuple
+        dimension of the output region / mask generated by the unet
+
+    Returns
+    -------
+    dict
+        holds two list of bounding boxes in 4-tuple format (x,y,w,h) 
+    """
+    # Step 1 Tile the image with the output region of the unet
+    output_boxes = rectangularTiling(image_shape, output_shape)
+    # Step 2 Regions are assumed to be centered. Use difference to calculate input regions
+    assert (input_shape[0]-output_shape[0])%2==0, 'Cannot center input in x direction'
+    assert (input_shape[1]-output_shape[1])%2==0, 'Cannot center input in y direction'
+    delta_x = (input_shape[0]-output_shape[0])//2
+    delta_y = (input_shape[1]-output_shape[1])//2
+
+    input_boxes = []
+    for bb_out in output_boxes:
+        x,y,w,h = bb_out # unpack 4 tuple
+        # compute and append input region
+        #NOTE coordinates outside image region will occur
+        input_boxes.append((x-delta_x,y-delta_y,w+2*delta_x,h+2*delta_y))
+    
+    return {'input_boxes': input_boxes, 'output_boxes': output_boxes}
+
+
+# %% Test Unet tiling
+
+regions = tileUnet(test_image.shape, (110,110), (100,100))
+showTiling(test_image,regions['output_boxes'])
+showTiling(test_image,regions['input_boxes'])
+
+ # %%
+def bb_lies_in_image_region(image_shape, boundingBox):
+    """Checks if a bounding box lies completely within an image
+
+    Parameters
+    ----------
+    image_shape : tuple
+        dimensions of the image
+    boundingBox : tuple
+        4-tuple (x,y,w,h) bounding box in image cordinates
+
+    Returns
+    -------
+    bool
+        whether the boundingBox lies completely within the image region
+    """
+    return True
