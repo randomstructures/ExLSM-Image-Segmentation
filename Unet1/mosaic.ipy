@@ -10,8 +10,6 @@ import numpy as np
 import tensorflow as tf 
 
 #%% Define a tool for visual control of tiling patterns
-# Use of patch rectangles added to a patch collection as seen in 
-# https://matplotlib.org/3.1.1/gallery/statistics/errorbars_and_boxes.html#sphx-glr-gallery-statistics-errorbars-and-boxes-py
 
 def showTiling(image, bounding_boxes):
     """Draw an image and visualize a collection of bounding boxes
@@ -65,27 +63,6 @@ def rectangularTiling(image_shape, rectangle):
     
     return boxes
 
-#%% Tests
-
-test_image = tf.keras.preprocessing.image.load_img('../images/Abyssinian_1.jpg')
-test_image = tf.keras.preprocessing.image.img_to_array(test_image)/255
-aabb = rectangularTiling(test_image.shape,(100,200))
-showTiling(test_image,aabb)
-
-# %% Experiment to find out alignment of graphical and plot coordinate system
-test_image = tf.keras.preprocessing.image.load_img('../images/Abyssinian_1.jpg')
-test_image = tf.keras.preprocessing.image.img_to_array(test_image)/255
-test_image[10:20,50:200,:] = np.zeros((10,150,3))
-plt.imshow(test_image)
-bb = (50,100,10,200)
-bb_adj = image_to_plot(bb)
-plt.gca().add_patch(plt.Rectangle(bb[0:2],bb[2],bb[3], color='blue'))
-plt.gca().add_patch(plt.Rectangle(bb_adj[0:2],bb_adj[2],bb_adj[3], color='red'))
-plt.xlabel('x Axis')
-plt.ylabel('y Axis')
-plt.text(10, 360, 'Black rect: (10,50,10,150) in image coords\nBlue rect: (50,100,10,200) in plot coords\nRed rect: (50,100,10,200) transposed to image coords')
-plt.title('Coordinate systems in plt.imshow()')
-plt.savefig('Coordinate Systems.png')
 #%%
 def image_to_plot(bounding_box):
     """
@@ -99,24 +76,6 @@ def image_to_plot(bounding_box):
     (x_img, y_img, w_img, h_img) = bounding_box # Image coord system
     return (y_img, x_img, h_img, w_img) # Plot coord system (x,y,w,h)
 
-
-# %% Extract imag patches given by a list of bounding boxes
-def getImageTiles(image, boundingBoxes):
-    tiles = [] # construct list of image tensors
-    for bb in boundingBoxes:
-        #print('cropping {}'.format(bb))
-        tiles.append(tf.image.crop_to_bounding_box(image, bb[0], bb[1], bb[2], bb[3]))
-    return tiles
-
-def showTiles(tiles):
-    n = len(tiles)
-    fig, ax = plt.subplots(n, sharex=True, figsize=(8,16))
-    for i in range(n):
-        ax[i].imshow(tiles[i])
-
-# %%
-test_tiles = getImageTiles(test_image, aabb)
-showTiles(test_tiles)
 
 # %%    
 def tileUnet(image_shape, input_shape, output_shape):
@@ -156,13 +115,6 @@ def tileUnet(image_shape, input_shape, output_shape):
     
     return {'input_boxes': input_boxes, 'output_boxes': output_boxes}
 
-
-# %% Test Unet tiling
-
-regions = tileUnet(test_image.shape, (110,110), (100,100))
-showTiling(test_image,regions['output_boxes'])
-showTiling(test_image,regions['input_boxes'])
-
  # %%
 def bb_lies_in_image_region(image_shape, boundingBox):
     """Checks if a bounding box lies completely within an image
@@ -179,4 +131,189 @@ def bb_lies_in_image_region(image_shape, boundingBox):
     bool
         whether the boundingBox lies completely within the image region
     """
-    return True
+    # The image has it's top left corner at (0,0) there can be no negative coordinates
+    (x,y,w,h) = boundingBox
+    valid = (x>=0 and y>=0)
+    # The bounding box may not protrude past the image borders
+    valid = valid and x+w <= image_shape[0]
+    valid = valid and y+h <= image_shape[1]
+    return valid
+
+# %% Extract imag patches given by a list of bounding boxes
+def getImageTiles(image, boundingBoxes):
+    """Cut out a collection of image tiles given by a list of bounding boxes
+
+    Parameters
+    ----------
+    image : image tensor
+        the image to cut tiles from
+    boundingBoxes : list
+        a list of 4-tuple (x,y,w,h) bounding boxes
+
+    Returns
+    -------
+    list
+        a list of image tensors showing the specified regions
+    """
+    tiles = [] # construct list of image tensors
+    for bb in boundingBoxes:
+        #print('cropping {}'.format(bb))
+        # check if we can just crop out the bb from the image
+        if bb_lies_in_image_region(image.shape, bb):
+            tiles.append(tf.image.crop_to_bounding_box(image, bb[0], bb[1], bb[2], bb[3]))
+        else:
+            #TODO implement periodic borders
+            print('{} violates image borders {}'.format(bb, image.shape))
+    return tiles
+
+def showTiles(tiles):
+    """Plot a list of image tensors
+
+    Parameters
+    ----------
+    tiles : list
+        a list of tensors to plot
+    """
+    n = len(tiles)
+    fig, ax = plt.subplots(n, sharex=True, figsize=(8,16))
+    for i in range(n):
+        ax[i].imshow(tiles[i])
+
+
+
+# %%
+def extendImageToBB(image, boundingBox):
+    """Generates an image that is extended to fill a bounding box by mirroring at its sides
+
+    Parameters
+    ----------
+    image : image tensor
+        the image to be extended
+    boundingBox : tuple
+        4-tuple (x,y,w,h) bounding box in image coordinates.
+
+    Returns
+    -------
+    image tensor
+        the specified region where missing information was filled in by mirroring the image
+    """
+    # Compute the how much padding has to be generated
+    (x,y,w,h) = boundingBox
+    (w_img, h_img, c) = image.shape
+    # x direction
+    x_prepend = np.max([0, -x]) # If x<0 prepend |x| pixels
+    x_append = np.max([0,x+w-w_img]) # If x+w > w_img append the difference
+    # y direction
+    y_prepend = np.max([0, -y])
+    y_append = np.max([0,y+h-h_img])
+    # Use tensorflow padding operation with 'REFLECT' option
+    image_extended = tf.pad(image, paddings=[[x_prepend,x_append], # x dimension
+                                             [y_prepend,y_append], # y dimension
+                                             [0,0]], # channel dimension (unaltered)
+                            mode='REFLECT') 
+    return image_extended
+
+# %%
+def getRegionBoundary(bounding_boxes):
+    """Compute the smallest bounding box that contains all bounding boxes in a list
+
+    Parameters
+    ----------
+    bounding_boxes : list
+        list of 4-tuple (x,y,w,h) bounding boxes
+
+    Returns
+    -------
+    tuple
+        4-tuple (x,y,w,h) bounding box 
+    """
+    n = len(bounding_boxes)
+    assert n>=1, 'empty list'
+    x_min, y_min, x_max, y_max = (0,0,0,0)
+    for bb in bounding_boxes:
+        (x,y,w,h) = bb
+        x_min = np.min([x_min,x]) # topmost corner
+        y_min = np.min([y_min,y]) # leftmost corner
+        x_max = np.max([x_max,x+w]) # max bottom
+        y_max = np.max([y_max,y+h]) # max right
+    w_max = x_max - x_min # extension in x
+    h_max = y_max - y_min # extension in y
+    return (x_min,y_min,w_max,h_max) # (x,y,w,h)
+
+
+# %% 
+
+def getMirroredTiles(image, boundingBoxes):
+    """Crop out a collection of bounding boxes from an image. If the bounding boxes extend past the image, mirror it at it's borders to fill in the missing values
+
+    Parameters
+    ----------
+    image : image tensor
+        the image to be cropped
+    boundingBoxes : list
+        a list of 4-tuple (x,y,w,h) bounding boxes that can extend past the image borders but not more than the image dimension
+
+    Returns
+    -------
+    list
+        a list of image tiles
+    """
+    # Step1 get the region covered by the bounding boxes
+    region = getRegionBoundary(boundingBoxes)
+    # Step2 extend the image to fit the required region
+    image_extended = extendImageToBB(image, region)
+    # Step3 shift all bounding boxes to account for the extension at the top left corner (new origo)
+    shift_x = np.max([0,-region[0]]) # prepended pixels x
+    shift_y = np.max([0,-region[1]]) # prepended pixels y
+    bb_adjusted = [(x+shift_x, y+shift_y, w, h) for (x,y,w,h) in boundingBoxes]
+    # Step3 cut out the tiles
+    tiles = getImageTiles(image_extended,bb_adjusted)
+    
+    return tiles
+
+#%% Tests
+"""
+test_image = tf.keras.preprocessing.image.load_img('../images/Abyssinian_1.jpg')
+test_image = tf.keras.preprocessing.image.img_to_array(test_image)/255
+aabb = rectangularTiling(test_image.shape,(100,200))
+showTiling(test_image,aabb)
+
+# %% Experiment to find out alignment of graphical and plot coordinate system
+test_image = tf.keras.preprocessing.image.load_img('../images/Abyssinian_1.jpg')
+test_image = tf.keras.preprocessing.image.img_to_array(test_image)/255
+test_image[10:20,50:200,:] = np.zeros((10,150,3))
+plt.imshow(test_image)
+bb = (50,100,10,200)
+bb_adj = image_to_plot(bb)
+plt.gca().add_patch(plt.Rectangle(bb[0:2],bb[2],bb[3], color='blue'))
+plt.gca().add_patch(plt.Rectangle(bb_adj[0:2],bb_adj[2],bb_adj[3], color='red'))
+plt.xlabel('x Axis')
+plt.ylabel('y Axis')
+plt.text(10, 360, 'Black rect: (10,50,10,150) in image coords\nBlue rect: (50,100,10,200) in plot coords\nRed rect: (50,100,10,200) transposed to image coords')
+plt.title('Coordinate systems in plt.imshow()')
+plt.savefig('Coordinate Systems.png')
+
+# %% Test Unet tiling
+
+regions = tileUnet(test_image.shape, (110,110), (100,100))
+showTiling(test_image,regions['output_boxes'])
+showTiling(test_image,regions['input_boxes'])
+
+# %% Test getImageTiles
+inputTiles = getImageTiles(test_image, regions['input_boxes'])
+outputTiles = getImageTiles(test_image, regions['output_boxes'])
+showTiles(inputTiles)
+showTiles(outputTiles)
+
+# %% Test getRegionBoundary on a list of input boxes overlapping the test image
+getRegionBoundary(regions['input_boxes'])
+
+# %%
+regions = tileUnet(test_image.shape, (300,400), (280,350))
+showTiling(test_image, regions['output_boxes'])
+showTiling(test_image, regions['input_boxes'])
+inputTiles = getMirroredTiles(test_image,regions['input_boxes'])
+showTiles(inputTiles)
+
+# %%
+"""
