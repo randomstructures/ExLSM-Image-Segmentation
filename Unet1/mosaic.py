@@ -1,9 +1,8 @@
-    """
-    A collection of tools to tile images for the use with a fully convolutional network.
-
-    Linus Meienberg
-    June 2020
-    """
+"""  
+A collection of tools to tile images for the use with a fully convolutional network.
+Linus Meienberg
+June 2020
+"""
 
 #%% Imports 
 import PIL
@@ -273,6 +272,33 @@ def getMirroredTiles(image, boundingBoxes):
     tiles = getImageTiles(image_extended,bb_adjusted)
     
     return tiles
+
+#TODO convert list of image tensors to a batched numpy array
+def listToBatch(imageList):
+    image_shape  = imageList[0].shape
+    n = len(imageList)
+    batch = np.zeros((n,)+image_shape)
+    for i, image in enumerate(imageList):
+        batch[i] = image.to_numpy()
+    return batch
+
+#TODO function that assembles tiles to one image
+def assembleTiles(tiles, boundingBoxes):
+    """Assemble a list of tiles using the coordinates of a list of bounding boxes
+
+    Parameters
+    ----------
+    tiles : list
+        list of image tensors
+    boundingBoxes : list
+        list of nonoverlapping 4-tuple (x,y,w,h) bounding boxes in a common coordinate system used to place each tile
+
+    Returns
+    -------
+    image tensor
+        the assembled image
+    """
+    return image
 
 #%% Tests
 """
