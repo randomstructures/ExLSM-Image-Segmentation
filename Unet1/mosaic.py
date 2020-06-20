@@ -1,5 +1,8 @@
     """
-    A collection of tools to tile images for the use with a fully convolutional network
+    A collection of tools to tile images for the use with a fully convolutional network.
+
+    Linus Meienberg
+    June 2020
     """
 
 #%% Imports 
