@@ -98,7 +98,8 @@ def tileUnet(image_shape, input_shape, output_shape):
     Returns
     -------
     dict
-        holds two list of bounding boxes in 4-tuple format (x,y,w,h) 
+        holds two list of bounding boxes in 4-tuple format (x,y,w,h)
+        offset (x,y) offset of output to input region 
     """
     # Step 1 Tile the image with the output region of the unet
     output_boxes = rectangularTiling(image_shape, output_shape)
@@ -115,7 +116,7 @@ def tileUnet(image_shape, input_shape, output_shape):
         #NOTE coordinates outside image region will occur
         input_boxes.append((x-delta_x,y-delta_y,w+2*delta_x,h+2*delta_y))
     
-    return {'input_boxes': input_boxes, 'output_boxes': output_boxes}
+    return {'input_boxes': input_boxes, 'output_boxes': output_boxes, 'offset': (delta_x,delta_y)}
 
  # %%
 def bb_lies_in_image_region(image_shape, boundingBox):
@@ -282,7 +283,6 @@ def listToBatch(imageList):
         batch[i] = image.to_numpy()
     return batch
 
-#TODO function that assembles tiles to one image
 def assembleTiles(tiles, boundingBoxes):
     """Assemble a list of tiles using the coordinates of a list of bounding boxes
 
@@ -298,11 +298,46 @@ def assembleTiles(tiles, boundingBoxes):
     image tensor
         the assembled image
     """
+    # Step 1 Determine the image region and allocate a suitable image tensor
+    (x_min,y_min,w_max,h_max) = getRegionBoundary(boundingBoxes) # w,h give image size
+    channels = tiles[0].shape[-1] # preserve the number of channels (assumed to be last dimenion in tensor)
+    image = np.zeros((w_max,h_max,)+(channels,))
+    # write tiles to the correct location in the image coordinate system (x,y) of region is origo / (0,0) in image
+    for tile, bb in zip(tiles, boundingBoxes):
+        (x,y,w,h) = bb # extract bounding box
+        (x,y,w,h) = (x-x_min,y-y_min,w,h) # shift to image coordinates
+        image[x:x+w,y:y+h,:] = tile # write tile to image
     return image
+
+def centralCrop(image, image_size):
+    """Crops out the central region as specified by image_size. The same number of pixels must be removed on each side
+
+    Parameters
+    ----------
+    image : image tensor
+        the image to crop
+    image_size : tuple
+        the dimensions of the output image
+
+    Returns
+    -------
+    image tensor
+        the croped image
+    """
+    given_size = image.shape
+    assert (given_size[0]-image_size[0])%2==0, 'cannot center crop region in x direction'
+    assert (given_size[1]-image_size[1])%2==0, 'cannot center crop region in x direction'
+    dx = (given_size[0]-image_size[0])//2
+    dy = (given_size[1]-image_size[1])//2
+    image = tf.image.crop_to_bounding_box(image, dx, dy, given_size[0]-2*dx, given_size[1]-2*dy)
+    return image
+
+def cropToBB(image, boundingBox):
+    return tf.image.crop_to_bounding_box(image, boundingBox[0], boundingBox[1], boundingBox[2], boundingBox[3])
 
 #%% Tests
 """
-test_image = tf.keras.preprocessing.image.load_img('../images/Abyssinian_1.jpg')
+test_image = tf.keras.preprocessing.image.load_img('../images/Abyssinian_4.jpg')
 test_image = tf.keras.preprocessing.image.img_to_array(test_image)/255
 aabb = rectangularTiling(test_image.shape,(100,200))
 showTiling(test_image,aabb)
@@ -338,11 +373,18 @@ showTiles(outputTiles)
 getRegionBoundary(regions['input_boxes'])
 
 # %%
-regions = tileUnet(test_image.shape, (300,400), (280,350))
+regions = tileUnet(test_image.shape, (300,400), (250,350))
 showTiling(test_image, regions['output_boxes'])
 showTiling(test_image, regions['input_boxes'])
 inputTiles = getMirroredTiles(test_image,regions['input_boxes'])
 showTiles(inputTiles)
+
+# %%
+showTiling(test_image, regions['output_boxes'])
+image_reassembled = assembleTiles(inputTiles, regions['input_boxes'])
+image_reassembled_cropped = cropToBB(image_reassembled, (regions['offset'][0],regions['offset'][1], test_image.shape[0], test_image.shape[1]))
+showTiling(image_reassembled, regions['input_boxes'])
+showTiling(image_reassembled_cropped, regions['output_boxes'])
 
 # %%
 """
