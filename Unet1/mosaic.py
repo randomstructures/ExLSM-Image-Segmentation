@@ -280,7 +280,7 @@ def listToBatch(imageList):
     n = len(imageList)
     batch = np.zeros((n,)+image_shape)
     for i, image in enumerate(imageList):
-        batch[i] = image.to_numpy()
+        batch[i] = image.numpy()
     return batch
 
 def assembleTiles(tiles, boundingBoxes):
