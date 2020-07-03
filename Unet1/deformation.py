@@ -11,7 +11,6 @@ import cv2
 # Scipy interpolation and image manipulation 
 import scipy.interpolate
 import scipy.ndimage
-import utility
 
 #%% Helper functions to visualize Distortions
 
@@ -46,8 +45,32 @@ def edge_grid(im, grid_size):
 
 #%% Elastic Deformation I 
 
-def displacementGridMapping(image_shape, n_lines = 5, loc = 0, scale = 10):
-    """Generate a coordinate mapping from output to input coordinates that results in an elastic deformation of the input image.
+def getCoordinateMappingFromDisplacementField(dx, dy):
+    """Generate a coordinate mapping from output to input coordinates given a displacement field
+
+    Parameters
+    ----------
+    dx, dy
+       tensors of the same size as the image tensor in x,y dimensions.
+       Holds the x and y component of the displacement vector applied at any position in the image
+
+    Returns
+    -------
+    callable
+        A coordinate mapping (x,y,c) -> (x,y,c) from output to input coordinates
+    """
+    # Define a callable that maps output coordinates to origin coordinates
+    def getOriginCords(coords):
+        # coords are assumed to be a coordinate tuple (x,y,c)
+        x = coords[0] + dx[coords[0], coords[1]]
+        y = coords[1] + dy[coords[0], coords[1]]
+        return (x,y,coords[2])
+
+    # return the callable
+    return getOriginCords
+
+def displacementGridField(image_shape, n_lines = 5, loc = 0, scale = 10):
+    """Generate a displacement field that results in an elastic deformation of the input image.
        
        This method implements the approach described in (#TODO cite unet paper)[]
        A coarse grid with the same extent as the image is created.
@@ -64,11 +87,9 @@ def displacementGridMapping(image_shape, n_lines = 5, loc = 0, scale = 10):
     loc, scale : float
         center and standard deviation of the normal distribution that is sampled to populate the displacement grid
 
-    Returns
-    -------
-    callable
-        maps output images coordinates (x,y,c) to input image coordinates (x,y,c). 
-        Can be used in combination with scipy's ndimage geometric transform
+    dx, dy
+       tensors of the same size as the image tensor in x,y dimensions.
+       Holds the x and y component of the displacement vector applied at any position in the image
     """    
     ## define grid
     input_shape = image_shape # (x,y,c) shape of input image
@@ -98,47 +119,12 @@ def displacementGridMapping(image_shape, n_lines = 5, loc = 0, scale = 10):
     interpolator_dx = scipy.interpolate.RectBivariateSpline(grid_x, grid_y, grid_dx)
     interpolator_dy = scipy.interpolate.RectBivariateSpline(grid_x, grid_y, grid_dy)
 
-    # Define a callable that maps output coordinates to origin coordinates
-    def getOriginCords(coords):
-        # coords are assumed to be a coordinate tuple (x,y,c)
-        x = coords[0] + interpolator_dx.ev(coords[0], coords[1])
-        y = coords[1] + interpolator_dy.ev(coords[0], coords[1])
-        return (x,y,coords[2])
+    xx, yy = np.meshgrid(np.arange(input_shape[0]), np.arange(input_shape[1]), indexing='ij')
+    dx = interpolator_dx.ev(xx,yy)
+    dy = interpolator_dy.ev(xx,yy)
 
-    # return the callable
-    return getOriginCords
+    return dx, dy
     
-def smoothedRandomMapping(image_shape, alpha=300, sigma=8):
-    """Generate a coordinate mapping from output to input coordinates that results in an elastic deformation of the input image.
-
-    Samples an uniform random distribution over the extent of the input image and smooths the values by applying a gaussian filter.
-    the resulting displacement field is added to determine the origin coordinates for each position in the output image
-    
-    Parameters
-    ----------
-    image_shape : tuple
-        shape of the input image
-    alpha : float
-        amplitude of the displacement field
-    sigma : float
-        standard deviation of the gaussian kernel
-
-    Returns
-    -------
-    callable
-       maps output images coordinates (x,y,c) to input image coordinates (x,y,c). 
-       Can be used in combination with scipy's ndimage geometric transform 
-    """
-    dx, dy = smoothedRandomField(image_shape,alpha,sigma)
-    # Define a callable that maps output coordinates to origin coordinates
-    def getOriginCords(coords):
-        # coords are assumed to be a coordinate tuple (x,y,c)
-        x = coords[0] + dx[coords[0], coords[1]] # Assuming that pixel n,m is located at n,m  
-        y = coords[1] + dy[coords[0], coords[1]]
-        return (x,y,coords[2])
-
-    # return the callable
-    return getOriginCords
 
 def smoothedRandomField(image_shape, alpha=300, sigma=8):
     """Generate a displacement field that results in an elastic deformation of the input image.
@@ -175,15 +161,18 @@ def smoothedRandomField(image_shape, alpha=300, sigma=8):
 
 #%% Method to transform images given a mapping
 
-def mapImage(image, mapping):
+def mapImage(image, mapping, interpolation_order=1):
     """Perform a gemetric transformation of the input image as given by the mapping.
-
+    
     Parameters
     ----------
     image : image tensor
         input image
     mapping : callable
         mapping: output (x,y,c) -> input (x,y,c)
+    interpolation_order : int 
+        Order of the spline polynomial used in interpolation of fractionated input coordinates.
+        Set order 0 to use nearest neighbour interpolation which preserves integer class labels
 
     Returns
     -------
@@ -193,31 +182,9 @@ def mapImage(image, mapping):
     mapped = scipy.ndimage.geometric_transform(image,
                                                mapping, # Provide a callable that maps input to output cords
                                                mode='reflect', # Reflect image at borders to get values outside image domain
-                                               order=2) # Interpolate fractionated pixel values using biquadratic interpolation
+                                               order=interpolation_order) # Interpolate fractionated pixel values using biquadratic interpolation
     return mapped
 
-def mapMask(mask, mapping):
-    """Perform a gemetric transformation of the input mask as given by the mapping.
-    Nearest Neighbour Interpolation of fractionated input coordinates is used to preserve integer class labels
-
-    Parameters
-    ----------
-    image : image tensor
-        input mask
-    mapping : callable
-        mapping: output (x,y,c) -> input (x,y,c)
-
-    Returns
-    -------
-    image tensor
-        transformed mask
-    """
-    # does the same as map Image but prevents confusion of integer class labels at region borders by using nn interpolation
-    mapped = scipy.ndimage.geometric_transform(mask,
-                                               mapping, # Provide a callable that maps input to output cords
-                                               mode='reflect', # Reflect image at borders to get values outside image domain
-                                               order=0) # Interpolate fractionated pixel values using nearest neighbour value
-    return mapped
 #%% Methods to efficiently transform a collection of images
 
 def applyDisplacementField(image, dx, dy, interpolation_order = 1):
