@@ -15,6 +15,9 @@ from tensorflow.keras.preprocessing.image import load_img
 import numpy as np
 from matplotlib import pyplot as plt
 
+# Own code imports
+import deformation 
+
 #%%
 #dataset, info = tfds.load('oxford_iiit_pet:3.*.*', with_info=True)
 
@@ -94,43 +97,65 @@ def show_image_mask_pair(index, input_img_paths, target_img_paths):
 class OxfordPets(keras.utils.Sequence):
     """Helper to iterate over the data (as Numpy arrays)."""
 
-    def __init__(self, batch_size, img_size, mask_crop, input_img_paths, target_img_paths):
+    def __init__(self, batch_size, img_size, mask_crop, input_img_paths, target_img_paths, elastic = False):
         self.batch_size = batch_size # Number of pictures per batch
         self.img_size = img_size # tuple, size of the images
         self.mask_crop = mask_crop # int, number of pixels to crop from each border
         self.input_img_paths = input_img_paths # exhaustive list of all image locations
         self.target_img_paths = target_img_paths # list of all mask locations in the same order
+        self.elastic = elastic # Wheter to apply random elastic deformations to the image and mask
 
     def __len__(self):
         return len(self.target_img_paths) // self.batch_size
 
     def __getitem__(self, idx):
         """Returns tuple (input, target) correspond to batch #idx."""
+        # Prepare image paths
         i = idx * self.batch_size
         batch_input_img_paths = self.input_img_paths[i : i + self.batch_size]
         batch_target_img_paths = self.target_img_paths[i : i + self.batch_size]
+        # Load images into memory
         x = np.zeros((self.batch_size,) + self.img_size + (3,), dtype="float32")
         for j, path in enumerate(batch_input_img_paths):
             img = load_img(path, target_size=self.img_size)
             x[j] = img
+        # Load masks into memory
+        y = np.zeros((self.batch_size,) + self.img_size + (1,), dtype="uint8")
+        for j, path in enumerate(batch_target_img_paths):
+            img = load_img(path, target_size=self.img_size, color_mode = 'grayscale')
+            img = keras.preprocessing.image.img_to_array(img)
+            # Shift class labels from [1,2,3] to [0,1,2] for keras compatibility
+            img = img - 1 # subtract one from each element
+            y[j] = img
 
+        # Apply elastic deformation if specified
+        if self.elastic:
+             x,y = self._elastic(x,y)
+
+        # Crop the masks to account for the reduced output size of the unet
         # Precompute the size of the cropped mask tensor as a tuple
         mask_size = (self.img_size[0]-2*self.mask_crop, self.img_size[1]-2*self.mask_crop)
         # Allocate a numpy tensor
-        y = np.zeros((self.batch_size,) + mask_size + (1,), dtype="uint8")
-        for j, path in enumerate(batch_target_img_paths):
-            img = load_img(path, target_size=self.img_size, color_mode="grayscale")
-            img = keras.preprocessing.image.img_to_array(img)
+        y_cropped = np.zeros((self.batch_size,) + mask_size + (1,), dtype="uint8")
+        for j, img in enumerate(y):
             # Clip mask_crop pixels from each side
             img = tf.image.crop_to_bounding_box(img,
                                                 offset_height=self.mask_crop,
                                                 offset_width=self.mask_crop,
                                                 target_height=mask_size[0] ,
                                                 target_width=mask_size[1])
-            # Shift class labels from [1,2,3] to [0,1,2] for keras compatibility
-            img = img - 1 # subtract one from each element
-            y[j] = img
-        return x, y
+            y_cropped[j] = img
+
+        return x, y_cropped
+
+        
+
+    def _elastic(self, x, y):
+        # All images are resized to self.img_size => generate a shared displacement field for elastic deformation
+        dx, dy = deformation.displacementGridField(self.img_size, scale=7)
+        x = [deformation.applyDisplacementField(image, dx, dy, interpolation_order=1) for image in x] # process images
+        y = [deformation.applyDisplacementField(mask, dx, dy, interpolation_order=0) for mask in y] # process masks
+        return x, y 
 
 def create_mask(pred_mask):
     """Reduce the unet output (logit channel per class) to a mask (class number of maximum probability class)
