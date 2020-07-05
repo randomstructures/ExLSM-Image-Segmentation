@@ -153,8 +153,8 @@ class OxfordPets(keras.utils.Sequence):
     def _elastic(self, x, y):
         # All images are resized to self.img_size => generate a shared displacement field for elastic deformation
         dx, dy = deformation.displacementGridField(self.img_size, scale=7)
-        x = [deformation.applyDisplacementField(image, dx, dy, interpolation_order=1) for image in x] # process images
-        y = [deformation.applyDisplacementField(mask, dx, dy, interpolation_order=0) for mask in y] # process masks
+        x = np.stack([deformation.applyDisplacementField(image, dx, dy, interpolation_order=1) for image in x]) # process images stack list of tensor sclices to ndarray
+        y = np.stack([deformation.applyDisplacementField(mask, dx, dy, interpolation_order=0) for mask in y]) # process masks
         return x, y 
 
 def create_mask(pred_mask):
