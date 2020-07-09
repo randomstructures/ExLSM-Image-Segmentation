@@ -64,3 +64,79 @@ def check_size(size, n_blocks):
         return True, x
     else:
         return False, 0
+
+#%% 
+
+import os, pathlib
+from tensorflow import keras
+import numpy as np
+import matplotlib.pyplot as plt
+
+#%%
+#C:\Users\Linus Meienberg\Documents\ML Datasets\FruSingleNeuron_20190707\SampleCrops
+#'C:/Users/Linus Meienberg/Documents/ML Datasets/FruSingleNeuron_20190707/SampleCrops'
+base_dir = 'C:\\Users\\Linus Meienberg\\Documents\\ML Datasets\\FruSingleNeuron_20190707\\SampleCrops'
+samples = os.listdir(base_dir)
+
+path = os.path.join(base_dir,samples[0])
+
+def _getImage(path):
+    return keras.preprocessing.image.img_to_array(keras.preprocessing.image.load_img(path, color_mode='grayscale'))
+
+# import image
+input_image_sequence = os.path.join(path,'image')
+filenames = os.listdir(input_image_sequence)
+images = [_getImage(os.path.join(input_image_sequence, filename)) for filename in filenames]
+input_image = np.stack(images)
+
+#%%
+
+from mayavi import mlab
+mlab.init_notebook()
+
+#%%
+mlab.figure()
+s = mlab.contour3d(input_image[:,:,:,0], contours = 10, transparent=True)
+s
+
+#%%
+
+def get_path_lists(base_dir):
+    # Locate the dataset files
+    # X:\lillvis\temp\linus\OxfordPetDataset
+    # base_dir = 'X:/lillvis/temp/linus/OxfordPetDataset/'
+    input_dir = "images/"
+    target_dir = "annotations/trimaps/"
+    # Prepend comman base directory
+    input_dir = os.path.join(base_dir, input_dir)
+    target_dir = os.path.join(base_dir, target_dir)
+
+    # The following is a multiline python generator expression !
+    input_img_paths = sorted(
+        [
+            os.path.join(input_dir, fname)
+            for fname in os.listdir(input_dir)
+            if fname.endswith(".jpg")
+        ]
+    )
+    target_img_paths = sorted(
+        [
+            os.path.join(target_dir, fname)
+            for fname in os.listdir(target_dir)
+            if fname.endswith(".png") and not fname.startswith(".")
+        ]
+    )
+    print("Number of samples:", len(input_img_paths))
+
+    return input_img_paths, target_img_paths
+
+#input_img_paths, target_img_paths = get_path_lists()
+
+
+#for input_path, target_path in zip(input_img_paths[:10], target_img_paths[:10]):
+#    print(input_path, "|", target_path)
+
+#NOTE this method sorts all filenames in both directories by lexicographic order. This results in the grouping of images showing the same animal and some artifacts as 1 < 10 < 100 <...<2
+# At this point the corresponding elements are at the same position in both lists
+
+# %%
