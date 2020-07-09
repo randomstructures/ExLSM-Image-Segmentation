@@ -2,7 +2,7 @@
 """
 
 
-def check_image_size(size, n_blocks):
+def check_size(size, n_blocks):
     """Checks if a valid unet architecture with n blocks can be constructed from an image input 
 
     Parameters
@@ -57,7 +57,7 @@ def check_image_size(size, n_blocks):
     if not (skip-x)%2==0:
         print('Output block: crop from {} to {} not centered'.format(skip,x))
         return False, 0
-    x-=4
+    x -=4
 
     #print('image size valid')
     if x>0:

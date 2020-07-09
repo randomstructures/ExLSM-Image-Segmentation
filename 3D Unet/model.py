@@ -41,7 +41,7 @@ class Unet(tf.keras.Model):
         self.up_blocks = []
         for index in range(n_blocks)[::-1]:
             filters = filters//2  # half the number of filters in first convolution operation
-            self.up_blocks.append(DownsampleBlock(filters, index+1))
+            self.up_blocks.append(UpsampleBlock(filters, index+1))
 
         filters = filters//2 # half the number of filters in first convolution operation
         self.output_block = OutputBlock(filters, n_classes=2)
@@ -107,9 +107,9 @@ def _crop_concat(input, residual_input):
     # Crop away half of the difference at each side
     crop = [(given_shape[d]-target_shape[d])//2 for d in range(1,4)]
 
-    print(target_shape)
-    print(given_shape)
-    print(crop) 
+    #print(target_shape)
+    #print(given_shape)
+    #print(crop) 
 
     # Concatenate with cropped outputs in reverse order
     x = tf.keras.layers.Cropping3D(cropping=crop, # a tuple (a,b,c) is interpreted as specifying symmetric croppings ((a,a),(b,b),(c,c)) for each dimension
@@ -170,6 +170,7 @@ class DownsampleBlock(tf.keras.Model):
         """
         super(DownsampleBlock,self).__init__()
         with tf.name_scope('downsample_block_{}'.format(index)):
+            self.index = index
             self.conv1 = tf.keras.layers.Conv3D(filters=filters,
                                         kernel_size = (3,3,3),
                                         activation=tf.nn.relu)
@@ -240,6 +241,7 @@ class UpsampleBlock(tf.keras.Model):
         """
         super(UpsampleBlock, self).__init__()
         with tf.name_scope('upsample_block_{}'.format(index)):
+            self.index = index
             self.conv1 = tf.keras.layers.Conv3D(filters=filters,
                                         kernel_size = (3,3,3),
                                         activation=tf.nn.relu)
