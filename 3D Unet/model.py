@@ -19,12 +19,11 @@ import tensorflow as tf
 
 class Unet(tf.keras.Model):
 
-    def __init__(self, name= 'Unet', n_blocks= 2, **kwargs):
+    def __init__(self, name= 'Unet', n_blocks= 2, initial_filters= 32, **kwargs):
         super(Unet, self).__init__(name=name, **kwargs)
 
         # instantiate unet blocks
-
-        filters = 32
+        filters = initial_filters
         self.input_block = InputBlock(initial_filters= filters) 
         filters *= 2 # filters are doubled in second conv operation
         
