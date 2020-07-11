@@ -8,6 +8,8 @@ from tensorflow import keras
 import numpy as np
 import matplotlib.pyplot as plt
 
+from mayavi import mlab
+
 
 def check_size(size, n_blocks):
     """Checks if a valid unet architecture with n blocks can be constructed from an image input 
@@ -75,71 +77,95 @@ def check_size(size, n_blocks):
 
 #%% Load an example image 3d image
 
-def _getImage(path):
-    return keras.preprocessing.image.img_to_array(keras.preprocessing.image.load_img(path, color_mode='grayscale'))
+def _getImage(path, color_mode = 'grayscale'):
+    """Load an image as a numpy array using the keras API
 
-#C:\Users\Linus Meienberg\Documents\ML Datasets\FruSingleNeuron_20190707\SampleCrops
-#'C:/Users/Linus Meienberg/Documents/ML Datasets/FruSingleNeuron_20190707/SampleCrops'
-base_dir = 'C:\\Users\\Linus Meienberg\\Documents\\ML Datasets\\FruSingleNeuron_20190707\\SampleCrops'
-samples = os.listdir(base_dir)
+    Parameters
+    ----------
+    path : String
+        path to the image
+    color_mode : str, optional
+        the color mode used to load the image, by default 'grayscale' which loads a single channel
 
-def get_sample_image():
-    path = os.path.join(base_dir,samples[0])
-
-    # import image
-    input_image_sequence = os.path.join(path,'image') # Navigate to image subfolder
-    filenames = os.listdir(input_image_sequence)
-    images = [_getImage(os.path.join(input_image_sequence, filename)) for filename in filenames]
-    input_image = np.stack(images) # assembled image tensor
-    return input_image
-
-def get_sample_mask():
-    path = os.path.join(base_dir,samples[0])
-
-    # import image
-    input_image_sequence = os.path.join(path,'mask') # Navigate mo mask subfolder
-    filenames = os.listdir(input_image_sequence)
-    images = [_getImage(os.path.join(input_image_sequence, filename)) for filename in filenames]
-    input_image = np.stack(images) # assembled image tensor
-    return input_image
+    Returns
+    -------
+    tensor
+        image tensor of format (x,y,c)
+    """
+    return keras.preprocessing.image.img_to_array(keras.preprocessing.image.load_img(path, color_mode))
 #%%
 
-def get_path_lists(base_dir):
-    # Locate the dataset files
-    # X:\lillvis\temp\linus\OxfordPetDataset
-    # base_dir = 'X:/lillvis/temp/linus/OxfordPetDataset/'
-    input_dir = "images/"
-    target_dir = "annotations/trimaps/"
-    # Prepend comman base directory
-    input_dir = os.path.join(base_dir, input_dir)
-    target_dir = os.path.join(base_dir, target_dir)
+def load_volume(directory):
+    """Load a sclice of the 3D image dataset contained in a directory with the following structure:
+    directory
+        - image
+            - image000
+            - image001
+            ...
+        - mask
+            - mask000
+            - mask001
+            ...
+    where the images in each folder are ordered slices of the same 3D volume. 
+    Images are assumed to contain a single chanel.
+
+    Parameters
+    ----------
+    directory : string 
+        path to the directory containing the slice of the 3D image
+
+    Returns
+    -------
+    dict
+        'shape' : The shape of the 3D volume
+        'image' : Input Image tensor
+        'mask'  : Target Image tensor
+    """
+    # Prepend common base directory
+    input_dir = os.path.join(directory, 'image')
+    target_dir = os.path.join(directory, 'mask')
 
     # The following is a multiline python generator expression !
-    input_img_paths = sorted(
-        [
-            os.path.join(input_dir, fname)
-            for fname in os.listdir(input_dir)
-            if fname.endswith(".jpg")
-        ]
+    input_tensor = np.stack(
+        [_getImage(os.path.join(input_dir, fname)) for fname in os.listdir(input_dir)]
     )
-    target_img_paths = sorted(
-        [
-            os.path.join(target_dir, fname)
-            for fname in os.listdir(target_dir)
-            if fname.endswith(".png") and not fname.startswith(".")
-        ]
+    target_tensor = np.stack(
+        [_getImage(os.path.join(target_dir, fname)) for fname in os.listdir(target_dir)]
     )
-    print("Number of samples:", len(input_img_paths))
+    
+    assert input_tensor.shape == target_tensor.shape, 'Image and mask need to have the same shape'
+    
+    output = {}
+    output['shape'] = input_tensor.shape
+    output['image'] = input_tensor
+    output['mask']  = target_tensor
 
-    return input_img_paths, target_img_paths
+    return output
 
-#input_img_paths, target_img_paths = get_path_lists()
+# %%
+def show3DImage(image_tensor, channel=0, mode = 'image'):
+    """Visualize a single channel 3D image using mayavi's isosurface plot
 
+    Parameters
+    ----------
+    image_tensor : tensor
+        tensor of rank 4 in format (x,y,z,c)
+    channel : int, optional
+        the channel to visualize, by default 0
+    mode : str, optional
+        the visualization mode. Set to {'image','mask'}
+    """
+    if mode is 'image':
+        n_contours = 4
+        transparent = True
+    elif mode is 'mask':
+        n_contours = 10
+        transparent = False
+    else:
+        raise ValueError('Visualization mode undefined')
 
-#for input_path, target_path in zip(input_img_paths[:10], target_img_paths[:10]):
-#    print(input_path, "|", target_path)
-
-#NOTE this method sorts all filenames in both directories by lexicographic order. This results in the grouping of images showing the same animal and some artifacts as 1 < 10 < 100 <...<2
-# At this point the corresponding elements are at the same position in both lists
+    mlab.figure(size=(500,500))
+    plot = mlab.contour3d(image_tensor[...,channel], contours = n_contours, transparent=transparent)
+    return mlab.gcf()
 
 # %%
