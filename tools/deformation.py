@@ -1,4 +1,4 @@
-"""This Module provides methods to perform elastic deformations of images and associated segmentation masks
+"""This Module provides methods to perform elastic deformations of images, 3D volumes and associated segmentation masks
 """
 
 #%% Imports 
@@ -16,14 +16,14 @@ import scipy.ndimage
 
 # Edge grid lines into an image tensor
 def edge_grid(im, grid_size):
-    """Returns an image tensor with a black grid overlay.
+    """Returns a 2D image tensor with a black grid overlay.
        Usefull to visualize the distortions introduced in image processing
 
 
 
     Parameters
     ----------
-    im : image tensor
+    im : 2D image tensor
         the image that is edged
     grid_size : int     
         the spacing of the grid lines in both directions
@@ -69,7 +69,7 @@ def getCoordinateMappingFromDisplacementField(dx, dy):
     # return the callable
     return getOriginCords
 
-def displacementGridField(image_shape, n_lines = 5, loc = 0, scale = 10):
+def displacementGridField2D(image_shape, n_lines = 5, loc = 0, scale = 10):
     """Generate a displacement field that results in an elastic deformation of the input image.
        
        This method implements the approach described in (#TODO cite unet paper)[]
@@ -124,8 +124,71 @@ def displacementGridField(image_shape, n_lines = 5, loc = 0, scale = 10):
     dy = interpolator_dy.ev(xx,yy)
 
     return dx, dy
-    
 
+
+#%%
+def displacementGridField3D(image_shape, n_lines = 3, loc = 0, scale = 10):
+    """Generate a displacement field that results in an elastic deformation of the input image.
+       
+       This method implements the approach described in (#TODO cite unet paper)[]
+       A coarse grid with the same extent as the image is created.
+       For each node in the grid a random displacement vector is sampled from a gaussian distribution
+       The displacement at any given point in the output image is interpolated to get a smooth displacement vector field.
+
+
+    Parameters
+    ----------
+    image_shape : tuple
+        shape of the 3D image tensor
+    n_lines : int, optional
+        the number of lines in the displacment grid in each direction, by default 5
+    loc, scale : float
+        center and standard deviation of the normal distribution that is sampled to populate the displacement grid
+
+    Returns
+    -------
+    list
+       [dx, dy, dz] three tensors of the same size as the image tensor in x,y,z dimensions.
+       Hold the components of the displacement vector applied at any position in the image.
+    """    
+    ## define grid
+    input_shape = image_shape # (x,y,c) shape of input image
+    # n_lines = 5 # first and last line coincide with the image border !
+    assert n_lines >=2, 'Linear interpolation needs at least two displacement vectors in each direction.'
+
+    # Set up the coordinates op the displacement grid 
+    grid_x, grid_y, grid_z = np.linspace(0,input_shape[0],n_lines, dtype=np.integer), np.linspace(0,input_shape[1],n_lines, dtype=np.integer), np.linspace(0,input_shape[2],n_lines, dtype=np.integer)
+    #grid_cx, grid_cy = np.meshgrid(grid_x,grid_y) # point n in the mesh has position (grid_cx[n],grid_cy[n])
+    mesh_size = (len(grid_x),len(grid_y),len(grid_z))
+
+    #NOTE the coordinates of the grid lines (grid_x,...) ned to be STRICTLY ascending
+
+    ## draw displacement vectors on grid
+    # draw (dx,dy) ~ N(loc,scale) for every entry in the mesh
+    grid_dx = np.random.normal(loc = loc, scale = scale, size = mesh_size) 
+    grid_dy = np.random.normal(loc = loc, scale = scale, size = mesh_size)
+    grid_dz = np.random.normal(loc = loc, scale = scale, size = mesh_size)
+
+    # get the coordinates of all points in the image volume 
+    xx, yy, zz = np.meshgrid(np.arange(input_shape[0]), np.arange(input_shape[1]), np.arange(input_shape[2]), indexing='ij')
+    interpolation_coordinates = np.stack((xx,yy,zz), axis=-1)
+
+    ## calculate pixel wise displacement by linear interpolation
+    dx = scipy.interpolate.interpn(
+            (grid_x, grid_y, grid_z), # The points defining the regular grid in n dimensions.
+            grid_dx, # The data on the regular grid in n dimensions.
+            interpolation_coordinates) # The coordinates to sample the gridded data at
+    dy = scipy.interpolate.interpn(
+            (grid_x, grid_y, grid_z), # The points defining the regular grid in n dimensions.
+            grid_dy, # The data on the regular grid in n dimensions.
+            interpolation_coordinates) # The coordinates to sample the gridded data at
+    dz = scipy.interpolate.interpn(
+            (grid_x, grid_y, grid_z), # The points defining the regular grid in n dimensions.
+            grid_dz, # The data on the regular grid in n dimensions.
+            interpolation_coordinates) # The coordinates to sample the gridded data at
+
+    return (dx, dy, dz)
+#%%
 def smoothedRandomField(image_shape, alpha=300, sigma=8):
     """Generate a displacement field that results in an elastic deformation of the input image.
 
@@ -135,7 +198,7 @@ def smoothedRandomField(image_shape, alpha=300, sigma=8):
     Parameters
     ----------
     image_shape : tuple
-        shape of the input image
+        shape of the input image (spatial extent of the image region excluding channel dimension)
     alpha : float
         amplitude of the displacement field
     sigma : float
@@ -143,7 +206,7 @@ def smoothedRandomField(image_shape, alpha=300, sigma=8):
 
     Returns
     -------
-    dx, dy
+    list
        tensors of the same size as the image tensor in x,y dimensions.
        Holds the x and y component of the displacement vector applied at any position in the image
     """
@@ -152,12 +215,19 @@ def smoothedRandomField(image_shape, alpha=300, sigma=8):
     # *tuple unpacks the content of the tuple and passes them as arguments to the function -> collected by *args
     # (random_state.rand(*shape) * 2 - 1) gives a tensor specified by shape filled with univariate random numbers shifted to [-1,1)
     # gaussian filter smooths this array where the std in all direction is specified by sigma (large sigma gives smooth displacement arrays)
-    dx = scipy.ndimage.gaussian_filter((random_state.rand(*image_shape[:2]) * 2 - 1), sigma) * alpha # apply a gaussian filter (smoothing) on a list of displacement values
-    dy = scipy.ndimage.gaussian_filter((random_state.rand(*image_shape[:2]) * 2 - 1), sigma) * alpha
+    #dx = scipy.ndimage.gaussian_filter((random_state.rand(*image_shape[:2]) * 2 - 1), sigma) * alpha # apply a gaussian filter (smoothing) on a list of displacement values
+    #dy = scipy.ndimage.gaussian_filter((random_state.rand(*image_shape[:2]) * 2 - 1), sigma) * alpha
     # sigma => smoothing of displacement vector field
     # alpha => amplitude of displacement vector field
-
-    return dx, dy
+    
+    # For each dimension get a tensor with the same shape as the image holding one (scalar) component of the displacement vector
+    delta = []
+    for dimension in range(len(image_shape)):
+        delta.append(scipy.ndimage.gaussian_filter( 
+            (random_state.rand(*image_shape)*2-1) # Draw random uniformly distributed values in [-1,1]
+            , sigma) * alpha) # smooth them with a gaussian kernel with std sigma and scale the values by alpha
+   
+    return delta
 
 #%% Method to transform images given a mapping
 
@@ -187,8 +257,8 @@ def mapImage(image, mapping, interpolation_order=1):
 
 #%% Methods to efficiently transform a collection of images
 
-def applyDisplacementField(image, dx, dy, interpolation_order = 1):
-    """Transform an image by applying a displacement field of the same dimensions.
+def applyDisplacementField2D(image, dx, dy, interpolation_order = 1):
+    """Transform an image by applying a 2D displacement field of the same dimensions.
 
     Parameters
     ----------
@@ -220,3 +290,36 @@ def applyDisplacementField(image, dx, dy, interpolation_order = 1):
     
     return output
 
+def applyDisplacementField3D(image, dx, dy, dz, interpolation_order = 1):
+    """Transform an image volume by applying a 3D displacement field of the same dimensions.
+
+    Parameters
+    ----------
+    image : image tensor
+        the input image
+    dx, dy, dz : 3D tensors
+        tensors that holds the x/y/z component of the displacement vector for each pixel position
+    interpolation_order : int, optional
+        the order of the spline used to interpolate fractionated pixel values, by default 1
+        set 0 to use nearest neighbour interpolation (e.g. in segmentation masks)
+
+    Returns
+    -------
+    [type]
+        [description]
+    """
+    shape = image.shape
+    assert len(shape)==4, 'Tensor of rank 4 expected (x,y,z,c)'
+    xx, yy, zz = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), np.arange(shape[2]), indexing='ij') # coordinates (x,y) of all pixels in two lists (x1,x2,...)(y1,y2,...)
+    # var = a,b,c assigns a tuple
+    # np.reshape(y+dy, (-1, 1)) recasts the output (coord mesh y + y displacement) y coordinates to a onedimensional array (col vector, all lined up in x direction)
+    input_coordinates = np.reshape(xx+dx, (-1, 1)), np.reshape(yy+dy, (-1, 1)), np.reshape(zz+dz, (-1,1))
+    #print(indices[0].shape)
+
+    # Use the x,y,z mapping relation to map all channels
+    output = np.zeros_like(image)
+    # after interpolating all values in single file reshape to input dimensions
+    for c in range(shape[-1]):
+        output[...,c] =scipy.ndimage.map_coordinates(image[...,c], input_coordinates, order=interpolation_order, mode='reflect').reshape(shape[:-1])
+    
+    return output
