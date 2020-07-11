@@ -1,6 +1,13 @@
 """Collection of utilities to run 3D Unet
 """
 
+#%% 
+
+import os, pathlib
+from tensorflow import keras
+import numpy as np
+import matplotlib.pyplot as plt
+
 
 def check_size(size, n_blocks):
     """Checks if a valid unet architecture with n blocks can be constructed from an image input 
@@ -65,40 +72,36 @@ def check_size(size, n_blocks):
     else:
         return False, 0
 
-#%% 
 
-import os, pathlib
-from tensorflow import keras
-import numpy as np
-import matplotlib.pyplot as plt
+#%% Load an example image 3d image
 
-#%%
+def _getImage(path):
+    return keras.preprocessing.image.img_to_array(keras.preprocessing.image.load_img(path, color_mode='grayscale'))
+
 #C:\Users\Linus Meienberg\Documents\ML Datasets\FruSingleNeuron_20190707\SampleCrops
 #'C:/Users/Linus Meienberg/Documents/ML Datasets/FruSingleNeuron_20190707/SampleCrops'
 base_dir = 'C:\\Users\\Linus Meienberg\\Documents\\ML Datasets\\FruSingleNeuron_20190707\\SampleCrops'
 samples = os.listdir(base_dir)
 
-path = os.path.join(base_dir,samples[0])
+def get_sample_image():
+    path = os.path.join(base_dir,samples[0])
 
-def _getImage(path):
-    return keras.preprocessing.image.img_to_array(keras.preprocessing.image.load_img(path, color_mode='grayscale'))
+    # import image
+    input_image_sequence = os.path.join(path,'image') # Navigate to image subfolder
+    filenames = os.listdir(input_image_sequence)
+    images = [_getImage(os.path.join(input_image_sequence, filename)) for filename in filenames]
+    input_image = np.stack(images) # assembled image tensor
+    return input_image
 
-# import image
-input_image_sequence = os.path.join(path,'image')
-filenames = os.listdir(input_image_sequence)
-images = [_getImage(os.path.join(input_image_sequence, filename)) for filename in filenames]
-input_image = np.stack(images)
+def get_sample_mask():
+    path = os.path.join(base_dir,samples[0])
 
-#%%
-
-from mayavi import mlab
-mlab.init_notebook()
-
-#%%
-mlab.figure()
-s = mlab.contour3d(input_image[:,:,:,0], contours = 10, transparent=True)
-s
-
+    # import image
+    input_image_sequence = os.path.join(path,'mask') # Navigate mo mask subfolder
+    filenames = os.listdir(input_image_sequence)
+    images = [_getImage(os.path.join(input_image_sequence, filename)) for filename in filenames]
+    input_image = np.stack(images) # assembled image tensor
+    return input_image
 #%%
 
 def get_path_lists(base_dir):
