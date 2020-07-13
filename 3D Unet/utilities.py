@@ -6,9 +6,15 @@
 import os, pathlib
 from tensorflow import keras
 import numpy as np
+import random
 import matplotlib.pyplot as plt
 
 from mayavi import mlab
+
+# Import modules providing tools for image manipulation
+import sys
+sys.path.append('../tools/')
+import mosaic, deformation, affine 
 
 
 def check_size(size, n_blocks):
@@ -93,7 +99,7 @@ def _getImage(path, color_mode = 'grayscale'):
         image tensor of format (x,y,c)
     """
     return keras.preprocessing.image.img_to_array(keras.preprocessing.image.load_img(path, color_mode))
-#%%
+#%% Tools for dataset preparation
 
 def load_volume(directory):
     """Load a sclice of the 3D image dataset contained in a directory with the following structure:
@@ -142,7 +148,127 @@ def load_volume(directory):
 
     return output
 
-# %%
+def generateVariants(images, masks, variants,  elasticDeformation=True, affineTransform=True):
+    """Generate a given number of augumentes images from a list of 3D image tensors. Random transformations are reused on each input image befor new ones are drawn.
+
+    Parameters
+    ----------
+    images : list
+        list of 3D image tensors in format (x,y,z,c)
+    masks : list 
+        list of 3D segmentation masks in format (x,y,z,1)
+    variants : int
+        the number of augumented image, mask pairs to create
+    elasticDeformation : bool, optional
+        wheter to apply elastic deformation, by default True
+    affineTransform : bool, optional
+        wheter to apply random rotation and scaling, by default True
+
+    Returns
+    -------
+    tuple   
+        tuple of lists holding corresponding augumented 3D images and segmentation masks
+    """
+    # we want to create #variant images from #images originals minimizing the number of 
+    image_variants = []
+    mask_variants = []
+    # Check if new variants are still needed
+    while len(image_variants) < variants:
+        # Draw new random operations
+        if elasticDeformation:
+            image_shape = images[0].shape[:-1] # All images have the same dimensions, exclude channel axis
+            displacementField = deformation.displacementGridField3D(image_shape=image_shape)
+        if affineTransform:
+            transformationMatrix = affine.getRandomAffine()
+
+        # Apply them to all originals
+        for im, mask in zip(images,masks):
+            # Process a new image and a mask only as long as we need aditional variants
+            if len(image_variants) < variants:
+                if elasticDeformation:
+                    im = deformation.applyDisplacementField3D(im, *displacementField, interpolation_order = 1)
+                    mask = deformation.applyDisplacementField3D(mask, *displacementField, interpolation_order = 0)
+                if affineTransform:
+                    im = affine.applyAffineTransformation(im, transformationMatrix, interpolation_order = 1)
+                    mask = affine.applyAffineTransformation(mask, transformationMatrix, interpolation_order=0)
+
+                image_variants.append(im) # Also updates the length of the list
+                mask_variants.append(mask) 
+
+    return image_variants, mask_variants
+
+
+class Dataset3D(keras.utils.Sequence):
+
+    def  __init__(self, batch_size, batches, mask_crop, images, masks, augument=False, elastic=False, affine=False):
+        """Custom keras Sequence to simplify training. Performs on the fly data augumentation if specified.
+        The size of the segmentation masks is reduced to fit the output of the unet by a central crop.
+
+        Parameters
+        ----------
+        batch_size : int
+            number of image mask pairs in a batch
+        batches : int
+            number of batches in the dataset
+        mask_crop : int
+            number of pixels to crop from each border of the segmentation mask
+        images : list
+            list of 3D image tensors in format (x,y,z,c)
+        masks : list 
+            list of 3D segmentation masks in format (x,y,z,1)
+        augument : bool, optional
+            wheter to augument the images if false the original data is used, by default False
+        elastic : bool, optional
+            wheter to use elastic deformation, by default False
+        affine : bool, optional
+            wheter to use random rotation and scaling, by default False
+        """
+        super().__init__()
+        self.batch_size = batch_size
+        self.batches = batches
+        self.images = images
+        self.masks = masks
+        self.augument = augument
+        self.elastic = elastic
+        self.affine = affine
+        if not augument:
+            assert batch_size<=len(images), 'Allow data augumentation to create variants'
+        if augument:
+            assert elastic or affine, 'Allow at least one augumentation mechanism to generate variants'
+        self.mask_crop = mask_crop
+        self.cropper = keras.layers.Cropping3D(cropping=mask_crop) # Symmetric removal of mask crop pixels before and after x,y,z
+
+
+    def __len__(self):
+        return self.batches
+
+    def __getitem__(self, idx):
+        # images and masks are allready loaded into memory
+        batch_images = []
+        batch_masks = []
+
+        # augument images 
+        if self.augument:
+            batch_images, batch_masks = generateVariants(self.images, self.masks, self.batch_size, self.elastic, self.affine)
+        else:
+            batch_images = random.choices(self.images, k= self.batch_size)
+            batch_masks = random.choices(self.masks, k = self.batch_size)
+        
+        # stack tensor lists to batch tensors
+
+        batch_images = np.stack(batch_images)
+        batch_masks = np.stack(batch_masks)
+
+        # crop masks to output region of Unet
+        batch_masks = self.cropper(batch_masks).numpy()
+
+        return batch_images, batch_masks
+
+
+
+
+
+# %% 3D Visualization tools
 def show3DImage(image_tensor, channel=0, mode = 'image'):
     """Visualize a single channel 3D image using mayavi's isosurface plot
 
@@ -168,4 +294,25 @@ def show3DImage(image_tensor, channel=0, mode = 'image'):
     plot = mlab.contour3d(image_tensor[...,channel], contours = n_contours, transparent=transparent)
     return mlab.gcf()
 
+def show3DDisplacementField(dx, dy, dz, mask_points=2000, scale_factor=50.):
+    """Visualize a 3D vector field using mayavi.
+
+    Parameters
+    ----------
+    dx, dy, dz : tensor
+        rank three tensors holding the x,y,z components of the 3D vector field.
+    mask_points : int, optional
+        How many vectors to mask out for each vector displayed, by default 2000
+    scale_factor : float, optional
+        factor by which arrows are scaled for displaying the vector field, by default 50
+
+    Returns
+    -------
+    mlab.figure
+        Mayavi plot according to the running backend.
+    """
+    mlab.figure(size=(500,500))
+    plot = mlab.pipeline.vector_field(dx, dy, dz)
+    mlab.pipeline.vectors(plot, mask_points=mask_points, scale_factor=scale_factor)
+    return mlab.gcf()
 # %%
