@@ -4,6 +4,7 @@
 #%% 
 
 import os, pathlib
+import tensorflow as tf
 from tensorflow import keras
 import numpy as np
 import random
@@ -258,6 +259,9 @@ class Dataset3D(keras.utils.Sequence):
 
         batch_images = np.stack(batch_images)
         batch_masks = np.stack(batch_masks)
+
+        #BUG There are values > 1 in the binary mask ...?
+        batch_masks = tf.clip_by_value(batch_masks, 0, 1)
 
         # crop masks to output region of Unet
         batch_masks = self.cropper(batch_masks).numpy()
