@@ -187,9 +187,9 @@ return x
 
 """
 
-class InputBlock(tf.keras.Model):
+class InputBlock(tf.keras.layers.Layer):
     #TODO a class that implements a keras model (can be used as building block) and bundles the input operations of the Unet 
-    def __init__(self, initial_filters):
+    def __init__(self, initial_filters=8, **kwargs):
         """Unet Input Block
 
         Performs:
@@ -203,7 +203,8 @@ class InputBlock(tf.keras.Model):
         initial_filters : int
             the number of initial convolution filters. Grows exponentially with model depth.
         """
-        super(InputBlock, self).__init__()
+        super(InputBlock, self).__init__(**kwargs)
+        self.initial_filters = initial_filters
         # Instantiate Block 
         with tf.name_scope('input_block'):
             self.conv1 = tf.keras.layers.Conv3D(filters = initial_filters,
@@ -220,7 +221,12 @@ class InputBlock(tf.keras.Model):
         out = self.maxpool(x)
         return out, x # Provide full res intermediate x for skip connection
 
-class DownsampleBlock(tf.keras.Model):
+    def get_config(self):
+        config = super(InputBlock, self).get_config()
+        config.update({"initial_filters" : self.initial_filters})
+        return config
+
+class DownsampleBlock(tf.keras.layers.Layer):
     """Unet Downsample Block
 
     Perform two convolutions with a specified number of filters.
@@ -228,7 +234,7 @@ class DownsampleBlock(tf.keras.Model):
     Divert output for skip connection.
     Downsample by max pooling for lower level input.
     """
-    def __init__(self, filters, index):
+    def __init__(self, filters, index, **kwargs):
         """Unet Downsample Block
 
         Parameters
@@ -238,9 +244,10 @@ class DownsampleBlock(tf.keras.Model):
         index : int
             index / depth of the block
         """
-        super(DownsampleBlock,self).__init__()
+        super(DownsampleBlock,self).__init__(**kwargs)
         with tf.name_scope('downsample_block_{}'.format(index)):
             self.index = index
+            self.filters = filters
             self.conv1 = tf.keras.layers.Conv3D(filters=filters,
                                         kernel_size = (3,3,3),
                                         activation=tf.nn.relu)
@@ -255,13 +262,18 @@ class DownsampleBlock(tf.keras.Model):
         out = self.maxpool(x)
         return out, x
 
-class BottleneckBlock(tf.keras.Model):
+    def get_config(self):
+        config = super(DownsampleBlock, self).get_config()
+        config.update({"filters" : self.filters, "index" : self.index})
+        return config
+
+class BottleneckBlock(tf.keras.layers.Layer):
     """Central / Bottleneck Block of Unet Architecture
     
     Perform two unpadded convolutions before upsampling to begin the reconstructing pathway
     Include a Dropout layer for training the network
     """
-    def __init__(self, filters):
+    def __init__(self, filters, **kwargs):
         """Unet Bottleneck Block
 
         Parameters
@@ -269,8 +281,9 @@ class BottleneckBlock(tf.keras.Model):
         filters : int
             number of filters in the first convolution operation.
         """
-        super(BottleneckBlock,self).__init__()
+        super(BottleneckBlock,self).__init__(**kwargs)
         with tf.name_scope('bottleneck_block'):
+            self.filters = filters
             self.conv1 = tf.keras.layers.Conv3D(filters=filters,
                                         kernel_size = (3,3,3),
                                         activation=tf.nn.relu)
@@ -289,8 +302,12 @@ class BottleneckBlock(tf.keras.Model):
         x = self.upsample(x)
         return x
 
+    def get_config(self):
+        config = super(BottleneckBlock, self).get_config()
+        config.update({"filters" : self.filters})
+        return config
     
-class UpsampleBlock(tf.keras.Model):
+class UpsampleBlock(tf.keras.layers.Layer):
     """Unet Upsample Block
 
     Crop and concatenate skip input of corresponding depth to input from layer below.
@@ -299,7 +316,7 @@ class UpsampleBlock(tf.keras.Model):
 
     """
 
-    def __init__(self, filters, index):
+    def __init__(self, filters, index, **kwargs):
         """Upsample Block if Unet Architecture
 
         Parameters
@@ -309,9 +326,10 @@ class UpsampleBlock(tf.keras.Model):
         index : int
             index / depth of the block
         """
-        super(UpsampleBlock, self).__init__()
+        super(UpsampleBlock, self).__init__(**kwargs)
         with tf.name_scope('upsample_block_{}'.format(index)):
             self.index = index
+            self.filters = filters
             self.conv1 = tf.keras.layers.Conv3D(filters=filters,
                                         kernel_size = (3,3,3),
                                         activation=tf.nn.relu)
@@ -329,8 +347,12 @@ class UpsampleBlock(tf.keras.Model):
         x = self.upsample(x)
         return x
 
+    def get_config(self):
+        config = super(UpsampleBlock, self).get_config()
+        config.update({"filters" : self.filters, "index" : self.index})
+        return config
 
-class OutputBlock(tf.keras.Model):
+class OutputBlock(tf.keras.layers.Layer):
     """Unet Ouput Block
 
     Perform three unpadded convolutions.
@@ -338,9 +360,11 @@ class OutputBlock(tf.keras.Model):
     The model returns raw logits.
 
     """
-    def __init__(self, filters,  n_classes):
-        super(OutputBlock, self).__init__()
+    def __init__(self, filters,  n_classes, **kwargs):
+        super(OutputBlock, self).__init__(**kwargs)
         with tf.name_scope('output_block'):
+            self.filters = filters
+            self.n_classes = n_classes
             self.conv1 = tf.keras.layers.Conv3D(filters=filters,
                                         kernel_size = (3,3,3),
                                         activation=tf.nn.relu)
@@ -359,5 +383,9 @@ class OutputBlock(tf.keras.Model):
         x = self.conv3(x)
         return x
 
+    def get_config(self):
+        config = super(OutputBlock, self).get_config()
+        config.update({"filters" : self.filters, "n_classes" : self.n_classes})
+        return config
 
 # %%
