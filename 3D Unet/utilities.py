@@ -98,7 +98,7 @@ def _getImage(path, color_mode = 'grayscale'):
     tensor
         image tensor of format (x,y,c)
     """
-    return keras.preprocessing.image.img_to_array(keras.preprocessing.image.load_img(path, color_mode))
+    return keras.preprocessing.image.img_to_array(keras.preprocessing.image.load_img(path, color_mode=color_mode))
 #%% Tools for dataset preparation
 
 def load_volume(directory):
