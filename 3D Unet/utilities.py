@@ -248,12 +248,22 @@ class Dataset3D(keras.utils.Sequence):
         batch_images = []
         batch_masks = []
 
+
+        # shuffle the images and mask pairs in the same order
+        new_order = np.arange(self.batch_size) 
+        random.shuffle(new_order) # a shuffled list of old indices is created IN PLACE
+
         # augument images 
         if self.augument:
-            batch_images, batch_masks = generateVariants(self.images, self.masks, self.batch_size, self.elastic, self.affine)
+            batch_images, batch_masks = generateVariants(self.images, self.masks, self.batch_size,
+                                                         self.elastic, self.affine)
+            
+            batch_images = [batch_images[i] for i in new_order]
+            batch_masks = [batch_masks[i] for i in new_order]
         else:
-            batch_images = random.choices(self.images, k= self.batch_size)
-            batch_masks = random.choices(self.masks, k = self.batch_size)
+            # It is guaranteed that self.batch_size <= len(images)
+            batch_images = [self.images[i] for i in new_order]
+            batch_masks = [self.masks[i] for i in new_order]
         
         # stack tensor lists to batch tensors
 
@@ -273,7 +283,7 @@ class Dataset3D(keras.utils.Sequence):
 
 
 # %% 3D Visualization tools
-def show3DImage(image_tensor, channel=0, mode = 'image'):
+def show3DImage(image_tensor, channel=0, mode = 'image', newFigure = True, **kwargs):
     """Visualize a single channel 3D image using mayavi's isosurface plot
 
     Parameters
@@ -293,12 +303,12 @@ def show3DImage(image_tensor, channel=0, mode = 'image'):
         transparent = False
     else:
         raise ValueError('Visualization mode undefined')
-
-    mlab.figure(size=(500,500))
-    plot = mlab.contour3d(image_tensor[...,channel], contours = n_contours, transparent=transparent)
+    if newFigure:
+        mlab.figure(size=(500,500))
+    plot = mlab.contour3d(image_tensor[...,channel], contours = n_contours, transparent=transparent, **kwargs)
     return mlab.gcf()
 
-def show3DDisplacementField(dx, dy, dz, mask_points=2000, scale_factor=50.):
+def show3DDisplacementField(dx, dy, dz, mask_points=2000, scale_factor=50., newFigure=True, **kwargs):
     """Visualize a 3D vector field using mayavi.
 
     Parameters
@@ -315,8 +325,28 @@ def show3DDisplacementField(dx, dy, dz, mask_points=2000, scale_factor=50.):
     mlab.figure
         Mayavi plot according to the running backend.
     """
-    mlab.figure(size=(500,500))
+    if newFigure:
+        mlab.figure(size=(500,500))
     plot = mlab.pipeline.vector_field(dx, dy, dz)
-    mlab.pipeline.vectors(plot, mask_points=mask_points, scale_factor=scale_factor)
+    mlab.pipeline.vectors(plot, mask_points=mask_points, scale_factor=scale_factor, **kwargs)
     return mlab.gcf()
 # %%
+
+def showCutplanes(image_tensor, channel=0, hint = True, newFigure = True, **kwargs):
+    if newFigure:
+        mlab.figure(size=(700,700))
+    s = image_tensor[...,channel]
+    src = mlab.pipeline.scalar_field(s)
+    mid_x = s.shape[0] // 2
+    mid_y = s.shape[1] // 2
+    # numpy : np.ptp() = max()-min()
+    if hint:
+        mlab.pipeline.iso_surface(src, contours = [np.min(s)+0.8*s.ptp(), ], opacity = 0.3, **kwargs)
+    mlab.pipeline.image_plane_widget(src,
+                                    plane_orientation = 'x_axes',
+                                    slice_index = mid_x, **kwargs)
+    mlab.pipeline.image_plane_widget(src,
+                                    plane_orientation = 'y_axes',
+                                    slice_index = mid_y, **kwargs)
+    mlab.outline()
+    return mlab.gcf()

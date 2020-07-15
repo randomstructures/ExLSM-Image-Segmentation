@@ -239,7 +239,7 @@ class BottleneckBlock(tf.keras.layers.Layer):
             self.conv2 = tf.keras.layers.Conv3D(filters=filters*2,
                                         kernel_size = (3,3,3),
                                         activation=tf.nn.relu)
-            self.dropout = tf.keras.layers.Dropout(rate=0.5)
+            self.dropout = tf.keras.layers.Dropout(rate=0.2)
             self.upsample = tf.keras.layers.Conv3DTranspose(filters=filters*2,
                                                             kernel_size = (2,2,2),
                                                             strides= (2,2,2))
