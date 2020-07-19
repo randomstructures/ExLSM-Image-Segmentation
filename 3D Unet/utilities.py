@@ -4,15 +4,19 @@
 #%% 
 
 import os, pathlib
+import random
+
 import tensorflow as tf
 from tensorflow import keras
+
 import numpy as np
-import random
+import scipy
+
 import matplotlib.pyplot as plt
 
 from mayavi import mlab
 
-# Import modules providing tools for image manipulation
+#%% Import modules providing tools for image manipulation
 import sys
 sys.path.append('../tools/')
 import mosaic, deformation, affine 
@@ -81,6 +85,40 @@ def check_size(size, n_blocks):
     else:
         return False, 0
 
+#%% Mask conversion tools
+def applySoftmax(prediction):
+    """Converts an output of logits to pseudo class probabilities using the softmax function
+
+    Parameters
+    ----------
+    prediction : image tensor
+        tensor where the last axis corresponds to different classes. Values are raw class logits.
+
+    Returns
+    -------
+    image tensor
+        tensor where the last axis corresponds to different classes. Values are pseudo probabilities.
+    """
+    return scipy.special.softmax(prediction, axis= -1)
+
+def segmentationMask(prediction, restoreChannelDim=True):
+    """Convert an image tensor with per class logit / probabilities to a segmentation mask using argmax.
+    Each pixel holds the integer of the class number with the highest score.    
+
+    Parameters
+    ----------
+    prediction : image tensor
+        tensor where the last axis corresponds to different classes.
+
+    Returns
+    -------
+    segmentation mask
+        tensor with rank reduced by 1, each pixel holds the number of the class with the highest probability
+    """
+    seg =  np.argmax(prediction, axis = -1)
+    if restoreChannelDim:
+        seg = np.expand_dims(seg, axis= -1)
+    return seg
 
 #%% Load an example image 3d image
 
@@ -248,34 +286,36 @@ class Dataset3D(keras.utils.Sequence):
         batch_images = []
         batch_masks = []
 
-
-        # shuffle the images and mask pairs in the same order
-        new_order = np.arange(self.batch_size) 
-        random.shuffle(new_order) # a shuffled list of old indices is created IN PLACE
-
         # augument images 
         if self.augument:
             batch_images, batch_masks = generateVariants(self.images, self.masks, self.batch_size,
                                                          self.elastic, self.affine)
             
+            # shuffle the images and mask pairs in the same order
+            new_order = np.arange(self.batch_size) 
+            random.shuffle(new_order) # a shuffled list of old indices is created IN PLACE
             batch_images = [batch_images[i] for i in new_order]
             batch_masks = [batch_masks[i] for i in new_order]
         else:
-            # It is guaranteed that self.batch_size <= len(images)
-            batch_images = [self.images[i] for i in new_order]
-            batch_masks = [self.masks[i] for i in new_order]
+            indices = np.arange(len(self.images))
+            random.shuffle(indices)
+            indices = indices[:self.batch_size] # take the first batch_size indices (batch_size<=len(images) is guaranteed)
+            batch_images = [self.images[i] for i in indices]
+            batch_masks = [self.masks[i] for i in indices]
         
         # stack tensor lists to batch tensors
-
         batch_images = np.stack(batch_images)
         batch_masks = np.stack(batch_masks)
 
-        #BUG There are values > 1 in the binary mask ...?
+        #NOTE There are values > 1 in the binary mask which is an artifact of the mask creation process
+        # clip the mask at 1 to binarize it again
         batch_masks = tf.clip_by_value(batch_masks, 0, 1)
 
         # crop masks to output region of Unet
         batch_masks = self.cropper(batch_masks).numpy()
-
+        # cast to integer values
+        batch_masks = batch_masks.astype(int)
+        
         return batch_images, batch_masks
 
 
@@ -350,3 +390,43 @@ def showCutplanes(image_tensor, channel=0, hint = True, newFigure = True, **kwar
                                     slice_index = mid_y, **kwargs)
     mlab.outline()
     return mlab.gcf()
+
+
+def showLogitDistribution(prediction):
+    
+    plt.figure()
+    
+    data_range = np.linspace(np.min(prediction), np.max(prediction), 10)
+
+    for c in range(prediction.shape[-1]):
+        hist, bins = np.histogram(prediction[...,c], bins=data_range)
+        width = 0.7 * (bins[1] - bins[0])
+        center = (bins[:-1] + bins[1:]) / 2
+        plt.bar(center, hist, align='center', width=width, label='channel ' + str(c))
+
+    plt.title('Distribution of logits per channel in the prediction')
+    plt.xlabel('Predicted logit class probabilities')
+    plt.ylabel('count')
+    plt.legend()
+    plt.show()
+
+def showZSlices(volume, channel=0, n_slices = 4, title=None):
+    # volume is expected to be in format (x,y,z,c)
+    z_extent = volume.shape[2]
+    slice_z = np.linspace(0,z_extent,n_slices+2).astype(int)[1:-1] # n_slices+2 evently spaced planes, leave first and last one out
+
+    fig, axs = plt.subplots(1, n_slices, figsize=(4*n_slices+2,4.25))
+    fig.suptitle(title, fontsize=15)
+
+    for i, ax in enumerate(axs):
+        z = slice_z[i]
+        ax.label = title='slice @ z='+str(z)
+        ax.imshow(volume[:,:,z,channel])
+    
+    plt.show()
+
+def testFigure():
+    plt.figure()
+    plt.plot([1,2,1])
+    plt.legend('hello world')
+    plt.show()
