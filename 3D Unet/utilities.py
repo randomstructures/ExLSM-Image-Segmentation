@@ -420,9 +420,9 @@ def showZSlices(volume, channel=0, n_slices = 4, title=None):
 
     for i, ax in enumerate(axs):
         z = slice_z[i]
-        ax.label = title='slice @ z='+str(z)
+        ax.set_title('slice @ z='+str(z))
         ax.imshow(volume[:,:,z,channel])
-    
+
     plt.show()
 
 def testFigure():
@@ -430,3 +430,24 @@ def testFigure():
     plt.plot([1,2,1])
     plt.legend('hello world')
     plt.show()
+
+def showRGBComposite(r,g,b,gain=(1,1,1), title=None):
+    if type(gain) is tuple:
+        assert len(gain) is 3, 'specify gain for 3 channels (g_r,g_g,g_b)'
+    else:
+        gain = (gain,gain,gain)
+
+    assert not r is None, 'specify at one input channel in r'
+    if g is None:
+        g = np.zeros_like(r)
+    if b is None:
+        b = np.zeros_like(g)
+
+    composite = r*[1,0,0] + g*[0,1,0] + b*[0,0,1]
+    composite *= gain
+    plt.figure(figsize=(8,8))
+    plt.imshow(composite)
+    if not title is None:
+        plt.title(title)
+    plt.show()
+    
