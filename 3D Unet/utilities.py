@@ -410,18 +410,27 @@ def showLogitDistribution(prediction):
     plt.legend()
     plt.show()
 
-def showZSlices(volume, channel=0, n_slices = 4, title=None):
+def showZSlices(volume, channel=0, n_slices = 4, title=None, mode='gray', plot_size=4):
     # volume is expected to be in format (x,y,z,c)
     z_extent = volume.shape[2]
+    if mode is 'h5':
+        z_extent = volume.shape[0]
     slice_z = np.linspace(0,z_extent,n_slices+2).astype(int)[1:-1] # n_slices+2 evently spaced planes, leave first and last one out
 
-    fig, axs = plt.subplots(1, n_slices, figsize=(4*n_slices+2,4.25))
+    fig, axs = plt.subplots(1, n_slices, figsize=(plot_size*n_slices+2,plot_size+0.25))
     fig.suptitle(title, fontsize=15)
 
     for i, ax in enumerate(axs):
         z = slice_z[i]
         ax.set_title('slice @ z='+str(z))
-        ax.imshow(volume[:,:,z,channel])
+        if mode is 'rgb':
+            ax.imshow(volume[:,:,z,:])
+        elif mode is 'gray':
+            ax.imshow(volume[:,:,z,channel], cmap='Greys')
+        elif mode is 'h5':
+            ax.imshow(volume[z,:,:], cmap='Greys')
+        else:
+            raise ValueError('Mode not implemented')
 
     plt.show()
 
@@ -431,7 +440,7 @@ def testFigure():
     plt.legend('hello world')
     plt.show()
 
-def showRGBComposite(r,g,b,gain=(1,1,1), title=None):
+def makeRGBComposite(r,g,b,gain=(1,1,1)):
     if type(gain) is tuple:
         assert len(gain) is 3, 'specify gain for 3 channels (g_r,g_g,g_b)'
     else:
@@ -445,9 +454,5 @@ def showRGBComposite(r,g,b,gain=(1,1,1), title=None):
 
     composite = r*[1,0,0] + g*[0,1,0] + b*[0,0,1]
     composite *= gain
-    plt.figure(figsize=(8,8))
-    plt.imshow(composite)
-    if not title is None:
-        plt.title(title)
-    plt.show()
+    return composite
     
