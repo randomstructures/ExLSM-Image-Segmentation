@@ -390,7 +390,7 @@ showTiling(image_reassembled_cropped, regions['output_boxes'])
 
 class UnetTiler3D():
 
-    def __init__(self, image, mask=None, output_shape=(132,132,132), input_shape=(220,220,220)):
+    def __init__(self, image=None, image_shape=None, mask=None, output_shape=(132,132,132), input_shape=(220,220,220)):
         """
         Uses a pretrained 3D unet to segment an arbitrary input volume.
 
@@ -406,23 +406,33 @@ class UnetTiler3D():
         input_shape : tuple
             shape of the image input of the unet
         """
+        assert not image is None or not image_shape is None,  'specify at least an image shape for tiling'
         self.image = image
+        self.image_shape = image_shape
+
+        # Automatically infer image shape if not specified
+        if image_shape is None:
+            self.image_shape = image.shape
+
+        # Allocate an array to assemble the mask in if not specified
         if mask is None:
             self.mask = np.zeros_like(image) # Allocate a tensor where the segmentation mask is stored
         else:
-            assert image.shape == mask.shape, 'The mask and image array need to be of the same shape'
+            assert self.image_shape == mask.shape, 'The mask and image array need to be of the same shape'
             self.mask = mask
+
+        # Store output and input shape of the unet and check for correct number of dimensions
         self.output_shape = output_shape
         self.input_shape = input_shape
-        assert len(image.shape) == 3, 'Specify a single channel 3D image with format (x,y,z)'
-        assert len(output_shape) == 3, 'Specify the extent of the output shape as (x,y,z)'
-        assert len(input_shape) == 3, 'Specify the extent of the input shape as (x,y,z)'
+        assert len(self.image_shape) == 3, 'Specify a single channel 3D image with format (x,y,z)'
+        assert len(self.output_shape) == 3, 'Specify the extent of the output shape as (x,y,z)'
+        assert len(self.input_shape) == 3, 'Specify the extent of the input shape as (x,y,z)'
         
         # Calculate the coordinate mesh of the tiling
         # Each list goes up to the last multiple of tile_shape smaller than image_shape => endpoint excluded
-        self.x = list(range(0,image.shape[0],output_shape[0]))
-        self.y = list(range(0,image.shape[1],output_shape[1]))
-        self.z = list(range(0,image.shape[2],output_shape[2]))
+        self.x = list(range(0,self.image_shape[0],self.output_shape[0]))
+        self.y = list(range(0,self.image_shape[1],self.output_shape[1]))
+        self.z = list(range(0,self.image_shape[2],self.output_shape[2]))
 
         # Expose the shape of the tiling
         self.shape = (len(self.x),len(self.y),len(self.z))
@@ -493,22 +503,33 @@ class UnetTiler3D():
         delta = np.concatenate((-delta, delta))
         aabb = np.add(aabb,delta) # element wise addition
         return tuple(aabb)
-        
-    def _getSlice(self, index):
-        # get the aabb of the unet input slice
-        aabb = self._getInputTile(index)
+
+    def _cropAndPadAABB(self, volume ,aabb):
+        assert len(volume.shape)==3, 'Need a 3D volume'
         # clip the aabb if it protrudes from the image volume
         start = [ np.max([0, d]) for d in aabb[:3] ] # origo is at (0,0,0)
-        stop = [ np.min([self.image.shape[i], aabb[i+3]]) for i in range(3) ]
+        stop = [ np.min([volume.shape[i], aabb[i+3]]) for i in range(3) ]
         # calculate the padding in each direction
         pre_pad = [ np.max([0, -d]) for d in aabb[:3] ]
-        post_pad = [ np.max([0, aabb[i+3] - self.image.shape[i] ]) for i in range(3) ]
-        padding = tuple([ (pre_pad[i],post_pad[i]) for i in range(3) ] )
-        #print('padding = {}'.format(padding))
-        # extract the cliped slices from the h5 archive
-        data = self.image[start[0]:stop[0],start[1]:stop[1],start[2]:stop[2]]
+        post_pad = [ np.max([0, aabb[i+3] - volume.shape[i] ]) for i in range(3) ]
+        padding = tuple([ (pre_pad[i], post_pad[i]) for i in range(3) ] )
+        # extract valid/ clipped portion of the aabb
+        data = volume[start[0]:stop[0],start[1]:stop[1],start[2]:stop[2]]
         # pad the slice to the required size
         data = np.pad(data, pad_width=padding, mode='reflect')
+        return data
+
+    def _getSlice(self, index):
+        assert not self.image is None, 'No image data specified'
+        # get the aabb of the unet input slice
+        aabb = self._getInputTile(index)
+        data = self._cropAndPadAABB(self.image, aabb)
+        return data
+
+    def _getMaskSlice(self, index):
+        # get the aabb of the unet OUTPUT slice
+        aabb = self._getOutputTile(index)
+        data = self._cropAndPadAABB(self.mask, aabb)
         return data
     
     def _writeSlice(self, index, slice):
