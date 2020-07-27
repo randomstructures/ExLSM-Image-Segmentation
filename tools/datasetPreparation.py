@@ -20,7 +20,10 @@ def sampleMeanSignalStrength(tiler, n_samples):
 def sampleMaskProportion(tiler, n_samples):
     assert n_samples<len(tiler), 'Cannot sample more than {} samples from this tiling'.format(len(tiler))
     sample_index = np.random.choice( np.arange(len(tiler)), size=n_samples, replace=False) # choose n_samples random chunks from the volume
-    sample_mask_proportion = [ np.mean(tiler._cropAndPadAABB(tiler.mask,tiler._getOutputTile(i))) for i in sample_index ]
+    sample_volume = np.prod(tiler.output_shape) # number of pixels in the sample volume
+    sample_mask_proportion = [ 
+        np.count_nonzero(tiler._cropAndPadAABB(tiler.mask,tiler._getOutputTile(i))) / sample_volume
+         for i in sample_index ]
 
     return sample_index, sample_mask_proportion
 
@@ -52,6 +55,3 @@ def thresholdedSampling(sample_index, sample_mean_signal, threshold, n_samples, 
     #print(proba)
     samples = np.random.choice(sample_index, size=n_samples, replace=False, p=proba)
     return samples
-
-def createDataset():
-    
