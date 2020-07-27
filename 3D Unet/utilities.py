@@ -410,7 +410,7 @@ def showLogitDistribution(prediction):
     plt.legend()
     plt.show()
 
-def showZSlices(volume, channel=0, n_slices = 4, title=None, mode='gray', plot_size=4):
+def showZSlices(volume, channel=0, n_slices = 4, title=None, mode='gray', plot_size=4, vmin=None, vmax=None):
     # volume is expected to be in format (x,y,z,c)
     z_extent = volume.shape[2]
     if mode is 'h5':
@@ -426,9 +426,9 @@ def showZSlices(volume, channel=0, n_slices = 4, title=None, mode='gray', plot_s
         if mode is 'rgb':
             ax.imshow(volume[:,:,z,:])
         elif mode is 'gray':
-            ax.imshow(volume[:,:,z,channel], cmap='Greys')
+            ax.imshow(volume[:,:,z,channel], cmap='Greys', vmin=vmin, vmax=vmax)
         elif mode is 'h5':
-            ax.imshow(volume[z,:,:], cmap='Greys')
+            ax.imshow(volume[z,:,:], cmap='Greys',  vmin=vmin, vmax=vmax)
         else:
             raise ValueError('Mode not implemented')
 
