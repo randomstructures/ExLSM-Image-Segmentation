@@ -216,7 +216,16 @@ def generateVariants(images, masks, variants,  elasticDeformation=True, affineTr
         # Draw new random operations
         if elasticDeformation:
             image_shape = images[0].shape[:-1] # All images have the same dimensions, exclude channel axis
+            mask_shape = masks[0].shape[:-1] # get the shape of the segmentation mask
             displacementField = deformation.displacementGridField3D(image_shape=image_shape)
+
+            # Handle case if images and masks are allready precropped, centered volumes of different size
+            if not image_shape == mask_shape:
+                crop = tuple([(image_shape[i]-mask_shape[i])//2 for i in range(len(image_shape))])
+                mask_displacementField = tuple(
+                    [d[crop[0]:-crop[0] or None,crop[1]:-crop[1] or None, crop[2]:-crop[2] or None] 
+                    for d in displacementField])
+
         if affineTransform:
             transformationMatrix = affine.getRandomAffine()
 
@@ -226,7 +235,11 @@ def generateVariants(images, masks, variants,  elasticDeformation=True, affineTr
             if len(image_variants) < variants:
                 if elasticDeformation:
                     im = deformation.applyDisplacementField3D(im, *displacementField, interpolation_order = 1)
-                    mask = deformation.applyDisplacementField3D(mask, *displacementField, interpolation_order = 0)
+                    if image_shape == mask_shape:
+                        mask = deformation.applyDisplacementField3D(mask, *displacementField, interpolation_order = 0)
+                    else:
+                        mask = deformation.applyDisplacementField3D(mask, *mask_displacementField, interpolation_order= 0)
+
                 if affineTransform:
                     im = affine.applyAffineTransformation(im, transformationMatrix, interpolation_order = 1)
                     mask = affine.applyAffineTransformation(mask, transformationMatrix, interpolation_order=0)
