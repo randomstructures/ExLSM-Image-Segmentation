@@ -1,0 +1,72 @@
+BootStrap: docker
+From: ubuntu:16.04
+
+%help
+Singularity container for synapse detection project
+Usage:
+singularity run --nv -B /misc/local/matlab-2018b/ -B <lab_folder> singularity_*.simg main_2d.py/main_3d.py <args>
+
+%setup
+mkdir -p $SINGULARITY_ROOTFS/scripts
+
+%% Probably everything matlab related can be left away
+%mkdir -p $SINGULARITY_ROOTFS/matlab-build
+%mkdir -p $SINGULARITY_ROOTFS/matlab
+%cd /misc/local/matlab-2018b/extern/engines/python
+%/groups/dickson/home/lillvisj/anaconda/envs/synapse/bin/python setup.py build --build-base="$SINGULARITY_ROOTFS/matlab-build" install --prefix="/matlab"
+
+%files
+./unet_pipeline_v4/*.py /scripts/
+%./unet_pipeline_v4/*.m /scripts/
+%/groups/dickson/home/lillvisj/anaconda/envs/synapse/lib/python3.6/site-packages/matlab/* /matlab/
+
+%runscript
+cd /scripts
+exec python "$@"
+
+%environment
+export PATH=/miniconda/bin:$PATH
+export matlabroot="/misc/local/matlab-2018b"
+export PATH="$PATH:$matlabroot/bin"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:\
+$matlabroot/bin/glnxa64:\
+$matlabroot/runtime/glnxa64:\
+$matlabroot/sys/os/glnxa64"
+
+%post
+apt-get update
+apt-get install -y --no-install-recommends \
+build-essential \
+libboost-all-dev \
+libxt-dev \
+libxrender-dev \
+libxcomposite-dev \
+libglib2.0-0 \
+libfontconfig \
+libxi-dev \
+libxcursor-dev \
+libasound2-dev \
+libxdamage-dev \
+libxtst-dev \
+libxrandr-dev \
+libdbus-1-dev \
+ca-certificates \
+cmake \
+git \
+wget && \
+rm -rf /var/lib/apt/lists/*
+
+wget https://repo.continuum.io/miniconda/Miniconda3-4.6.14-Linux-x86_64.sh -O miniconda.sh
+bash miniconda.sh -b -p /miniconda
+PATH="/miniconda/bin:$PATH"
+conda config --set always_yes yes --set changeps1 no 
+conda update -q conda
+conda info -a
+conda install python=3.6
+
+conda install tensorflow-gpu
+conda install numpy
+conda install h5py
+
+conda install tqdm
+cp -a /matlab/ /miniconda/lib/python3.6/site-packages
