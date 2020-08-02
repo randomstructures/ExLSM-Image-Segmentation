@@ -1,4 +1,8 @@
 """Collection of utilities to run 3D Unet
+
+CNN arithmetics
+Data Input Pipeline
+
 """
 
 #%% 
@@ -11,10 +15,6 @@ from tensorflow import keras
 
 import numpy as np
 import scipy
-
-import matplotlib.pyplot as plt
-
-from mayavi import mlab
 
 #%% Import modules providing tools for image manipulation
 import sys
@@ -334,138 +334,3 @@ class Dataset3D(keras.utils.Sequence):
 
 
 
-
-# %% 3D Visualization tools
-def show3DImage(image_tensor, channel=0, mode = 'image', newFigure = True, **kwargs):
-    """Visualize a single channel 3D image using mayavi's isosurface plot
-
-    Parameters
-    ----------
-    image_tensor : tensor
-        tensor of rank 4 in format (x,y,z,c)
-    channel : int, optional
-        the channel to visualize, by default 0
-    mode : str, optional
-        the visualization mode. Set to {'image','mask'}
-    """
-    if mode is 'image':
-        n_contours = 4
-        transparent = True
-    elif mode is 'mask':
-        n_contours = 10
-        transparent = False
-    else:
-        raise ValueError('Visualization mode undefined')
-    if newFigure:
-        mlab.figure(size=(500,500))
-    plot = mlab.contour3d(image_tensor[...,channel], contours = n_contours, transparent=transparent, **kwargs)
-    return mlab.gcf()
-
-def show3DDisplacementField(dx, dy, dz, mask_points=2000, scale_factor=50., newFigure=True, **kwargs):
-    """Visualize a 3D vector field using mayavi.
-
-    Parameters
-    ----------
-    dx, dy, dz : tensor
-        rank three tensors holding the x,y,z components of the 3D vector field.
-    mask_points : int, optional
-        How many vectors to mask out for each vector displayed, by default 2000
-    scale_factor : float, optional
-        factor by which arrows are scaled for displaying the vector field, by default 50
-
-    Returns
-    -------
-    mlab.figure
-        Mayavi plot according to the running backend.
-    """
-    if newFigure:
-        mlab.figure(size=(500,500))
-    plot = mlab.pipeline.vector_field(dx, dy, dz)
-    mlab.pipeline.vectors(plot, mask_points=mask_points, scale_factor=scale_factor, **kwargs)
-    return mlab.gcf()
-# %%
-
-def showCutplanes(image_tensor, channel=0, hint = True, newFigure = True, **kwargs):
-    if newFigure:
-        mlab.figure(size=(700,700))
-    s = image_tensor[...,channel]
-    src = mlab.pipeline.scalar_field(s)
-    mid_x = s.shape[0] // 2
-    mid_y = s.shape[1] // 2
-    # numpy : np.ptp() = max()-min()
-    if hint:
-        mlab.pipeline.iso_surface(src, contours = [np.min(s)+0.8*s.ptp(), ], opacity = 0.3, **kwargs)
-    mlab.pipeline.image_plane_widget(src,
-                                    plane_orientation = 'x_axes',
-                                    slice_index = mid_x, **kwargs)
-    mlab.pipeline.image_plane_widget(src,
-                                    plane_orientation = 'y_axes',
-                                    slice_index = mid_y, **kwargs)
-    mlab.outline()
-    return mlab.gcf()
-
-
-def showLogitDistribution(prediction):
-    
-    plt.figure()
-    
-    data_range = np.linspace(np.min(prediction), np.max(prediction), 10)
-
-    for c in range(prediction.shape[-1]):
-        hist, bins = np.histogram(prediction[...,c], bins=data_range)
-        width = 0.7 * (bins[1] - bins[0])
-        center = (bins[:-1] + bins[1:]) / 2
-        plt.bar(center, hist, align='center', width=width, label='channel ' + str(c))
-
-    plt.title('Distribution of logits per channel in the prediction')
-    plt.xlabel('Predicted logit class probabilities')
-    plt.ylabel('count')
-    plt.legend()
-    plt.show()
-
-def showZSlices(volume, channel=0, n_slices = 4, title=None, mode='gray', plot_size=4, vmin=None, vmax=None):
-    # volume is expected to be in format (x,y,z,c)
-    z_extent = volume.shape[2]
-    if mode is 'h5':
-        z_extent = volume.shape[0]
-    slice_z = np.linspace(0,z_extent,n_slices+2).astype(int)[1:-1] # n_slices+2 evently spaced planes, leave first and last one out
-
-    fig, axs = plt.subplots(1, n_slices, figsize=(plot_size*n_slices+2,plot_size+0.25))
-    fig.suptitle(title, fontsize=15)
-
-    for i, ax in enumerate(axs):
-        z = slice_z[i]
-        ax.set_title('slice @ z='+str(z))
-        if mode is 'rgb':
-            ax.imshow(volume[:,:,z,:])
-        elif mode is 'gray':
-            ax.imshow(volume[:,:,z,channel], cmap='Greys', vmin=vmin, vmax=vmax)
-        elif mode is 'h5':
-            ax.imshow(volume[z,:,:], cmap='Greys',  vmin=vmin, vmax=vmax)
-        else:
-            raise ValueError('Mode not implemented')
-
-    plt.show()
-
-def testFigure():
-    plt.figure()
-    plt.plot([1,2,1])
-    plt.legend('hello world')
-    plt.show()
-
-def makeRGBComposite(r,g,b,gain=(1,1,1)):
-    if type(gain) is tuple:
-        assert len(gain) is 3, 'specify gain for 3 channels (g_r,g_g,g_b)'
-    else:
-        gain = (gain,gain,gain)
-
-    assert not r is None, 'specify at one input channel in r'
-    if g is None:
-        g = np.zeros_like(r)
-    if b is None:
-        b = np.zeros_like(g)
-
-    composite = r*[1,0,0] + g*[0,1,0] + b*[0,0,1]
-    composite *= gain
-    return composite
-    
