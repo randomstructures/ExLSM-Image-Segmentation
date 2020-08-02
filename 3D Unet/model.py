@@ -413,4 +413,59 @@ def weighted_sparse_categorical_crossentropy_v2(class_weights):
     
     return loss
 
+
+def soft_dice_loss(y_true, y_pred, num_classes):
+    """
+    Soft dice loss is derived from the dice score. 
+    It measures the overlap between the predicted and true mask regions for each channel.
+    Dice loss penalizes low confidence predictions in the ground truth region and high confidence predictions outside of it.
+
+    Wrapper for Jeremy Jordany implementation.
+
+    Parameters
+    ----------
+    y_true : tensor with shape (...,1)
+        ground truth integer segmentation mask
+    y_pred : tensor with shape (...,c)
+        raw logit predictions of the model
+
+    Returns
+    -------
+    callable   
+        the averaged soft dice loss
+    """
+    def loss(y_true,y_pred):
+        # convert the segmentation mask to one hot encoding
+        ohe_true = K.one_hot(y_true, num_classes)
+        # apply softmax to logits
+        softmax_pred = K.softmax(y_pred, axis=-1)
+        return soft_dice(ohe_true,softmax_pred)
+
 # %%
+def soft_dice(y_true, y_pred, epsilon=1e-6):
+    ''' 
+    This code adapted from [Jeremy Jordan](https://www.jeremyjordan.me/semantic-segmentation/) 
+
+    Soft dice loss calculation for arbitrary batch size, number of classes, and number of spatial dimensions.
+    Assumes the `channels_last` format.
+  
+    # Arguments
+        y_true: b x X x Y( x Z...) x c One hot encoding of ground truth
+        y_pred: b x X x Y( x Z...) x c Network output, must sum to 1 over c channel (such as after softmax) 
+        epsilon: Used for numerical stability to avoid divide by zero errors
+    
+    # References
+        V-Net: Fully Convolutional Neural Networks for Volumetric Medical Image Segmentation 
+        https://arxiv.org/abs/1606.04797
+        More details on Dice loss formulation 
+        https://mediatum.ub.tum.de/doc/1395260/1395260.pdf (page 72)
+        
+        Adapted from https://github.com/Lasagne/Recipes/issues/99#issuecomment-347775022
+    '''
+    
+    # skip the batch and class axis for calculating Dice score
+    axes = tuple(range(1, len(y_pred.shape)-1)) 
+    numerator = 2. * K.sum(y_pred * y_true, axes)
+    denominator = K.sum(K.square(y_pred) + K.square(y_true), axes)
+    
+    return 1 - np.mean((numerator + epsilon) / (denominator + epsilon)) # average over classes and batch
