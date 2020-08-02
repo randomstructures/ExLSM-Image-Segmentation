@@ -19,7 +19,7 @@ import scipy
 #%% Import modules providing tools for image manipulation
 import sys
 sys.path.append('../tools/')
-import mosaic, deformation, affine 
+import deformation, affine 
 
 
 def check_size(size, n_blocks):

@@ -1,11 +1,12 @@
 """A collection of evaluation metrics to assess the performance in 3D image segmentation tasks
+
    Linus Meienberg
    July 2020
 """
 #%%
 import numpy as np
 
-def intersection_over_union(true_mask,predicted_mask,num_classes=2,smooth=1):
+def intersection_over_union(true_mask, predicted_mask, num_classes=2, smooth=1):
     """Calculate the intersection over union metric for two sparse segmentation masks.
 
     Parameters

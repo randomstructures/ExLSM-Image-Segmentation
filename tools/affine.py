@@ -1,6 +1,9 @@
 """ Affine Transformations of 3D image tensors
 
 This module implements tools for rotation and scaling of 3D imaging data.
+
+Linus Meienberg
+June 2020
 """
 #%% Imports 
 
