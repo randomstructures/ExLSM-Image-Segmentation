@@ -7,7 +7,24 @@ June 2020
 
 
 import numpy as np
+from abc import ABC, abstractmethod # abstract base class and inheritance
 
+
+class Tiler(ABC):
+    """Base class that defines the interface to be implemented by any tiling strategy
+    #TODO create an inheritance hierarchy for tiler classes and define api
+    #TODO make tiler iterable
+    """
+
+    @abstractmethod
+    def __len__(self):
+        pass
+
+    def getSlice(self, i):
+        pass
+
+    def writeSlice(self, i):
+        pass
 
 
 class UnetTiler3D():
