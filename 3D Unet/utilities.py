@@ -187,6 +187,45 @@ def load_volume(directory):
 
     return output
 
+def tf_elastic(image: tf.Tensor, mask: tf.Tensor):
+    image_shape = image.shape
+    mask_shape = mask.shape
+    image, mask = tf.numpy_function(elasticDeformation, inp=[image,mask], Tout=(tf.float32,tf.int32))
+    image.set_shape(image_shape)
+    mask.set_shape(mask_shape)
+    return image, mask
+
+def tf_affine(image: tf.Tensor, mask: tf.Tensor):
+    image_shape = image.shape
+    mask_shape = mask.shape
+    image, mask = tf.numpy_function(affineTransformation, inp=[image,mask], Tout=(tf.float32,tf.int32))
+    image.set_shape(image_shape)
+    mask.set_shape(mask_shape)
+    return image, mask
+
+def elasticDeformation(image, mask):
+    displacementField = deformation.displacementGridField3D(image_shape=image.shape)
+    crop = tuple([(image.shape[i]-mask.shape[i])//2 for i in range(len(image.shape))])
+    mask_displacementField = tuple(
+                [dd[crop[0]:-crop[0] or None,crop[1]:-crop[1] or None, crop[2]:-crop[2] or None] 
+                for dd in displacementField])
+    image = deformation.applyDisplacementField3D(image, *displacementField, interpolation_order=1)
+    mask = deformation.applyDisplacementField3D(mask, *mask_displacementField, interpolation_order=0)
+    return image, mask
+
+def affineTransformation(image, mask):
+    tm = affine.getRandomAffine()
+    image = affine.applyAffineTransformation(image, tm, interpolation_order = 1)
+    mask = affine.applyAffineTransformation(mask, tm, interpolation_order=0)
+    return image, mask
+
+def augument(image, mask, elasticDeformation=True, affineTransform=False):
+    if elasticDeformation:
+        image, mask = elasticDeformation(image, mask)
+    if affineTransform:
+        image, mask = affineTransform(image, mask)
+    return image, mask
+
 def generateVariants(images, masks, variants,  elasticDeformation=True, affineTransform=True):
     """Generate a given number of augumentes images from a list of 3D image tensors. Random transformations are reused on each input image befor new ones are drawn.
 

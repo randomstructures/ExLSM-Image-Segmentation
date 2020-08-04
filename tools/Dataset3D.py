@@ -199,7 +199,8 @@ class Dataset():
             del self.dataset_h5[key]
 
     def get(self, key):
-        """Retrieve a record by it's key
+        """Retrieve a record by it's key  
+        reads the image tensors into a numpy ndarray and converts them to numpy dtypes
 
         Parameters
         ----------
@@ -214,12 +215,49 @@ class Dataset():
         if type(key) is int:
             key = str(key)
         assert key in self.keys(), 'Key not contained in dataset'
-        image = self.dataset_h5[key]['image']
-        mask =  self.dataset_h5[key]['mask']
+        image = self.dataset_h5[key]['image'][:].astype(np.float32)
+        mask =  self.dataset_h5[key]['mask'][:].astype(np.int32)
+
         metadata = {}
         for atr in self.dataset_h5[key].attrs.keys():
             metadata[atr] = self.dataset_h5[key].attrs[atr]
         return (image, mask, metadata)
+
+    def getGenerator(self, keys):
+        """Returns a generator function that iterates over the specified keys.
+        The generator yield a tuple consisting of the image input and the mask output for each.
+
+        Parameters
+        ----------
+        keys : list
+            list of keys that identify the dataset records over which the generator should iterate
+
+        Returns
+        -------
+        generator
+            a generator running over the keys in random order
+
+            Yields
+            -------
+            tuple   
+                the input image and corresponding output mask
+        """
+        # return a callabe that constructs a generator that iterates over the specified keys
+        assert set(keys).issubset(self.keys()), 'Keys contain unknown entries'
+        random.shuffle(keys) # iterate in random order
+
+        def getGen():
+            for key in keys:
+                image, mask, _ = self.get(key)
+                yield (image, mask)
+        
+        return getGen
+
+    def setAttribute(self, key, value):
+        self.dataset_h5.attrs.create(key,value) # write to h5 file attributes
+
+    def getAttributes(self):
+        return self.dataset_h5.attrs
 
     def close(self):
         self.dataset_h5.flush()
