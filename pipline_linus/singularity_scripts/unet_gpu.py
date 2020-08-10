@@ -1,3 +1,4 @@
+#%% Imports
 import gc
 import getopt
 import os
@@ -10,12 +11,14 @@ from tensorflow.keras.models import load_model
 
 from postprocess_cpu import hdf5_read, hdf5_write
 
+import tensorflow as tf
+
 #TODO copy the mosaic and the model py files into the singularity script folder
-import mosaic
+import tilingStrategy
 import model
 
 
-
+#%% method definitions
 def masked_binary_crossentropy(y_true, y_pred):
     mask = K.cast(K.not_equal(y_true,2), K.floatx())
     score = K.mean(K.binary_crossentropy(y_pred*mask, y_true*mask), axis=-1)
@@ -41,7 +44,7 @@ def masked_error_neg(y_true, y_pred):
     score = K.sum(error) / K.maximum(K.sum(mask),1)
     return score
 
-
+# %% custom code for large volume segmentation
 def preprocessImage(data):
     """This function preprocesses image data for the use with a pretrained unet model.
     The details of image preprocessing might vary over time. This method has to be updated manually to enshure that the unet performs as expected.
@@ -64,6 +67,20 @@ def preprocessImage(data):
     data = np.divide( np.subtract(data, 140), 40 )
     return data
 
+def tf_init():
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            # Currently, memory growth needs to be the same across GPUs
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+                logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+                print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+        except RuntimeError as e:
+            # Memory growth must be set before GPUs have been initialized
+            print(e)
+
+
 def apply_unet(img):
     """This function creates the segmentation mask of the input image and returns it.
     Internally, a pretrained unet is loaded, the input data is preprocessed and split into tiles which are fed to the unet.
@@ -76,7 +93,7 @@ def apply_unet(img):
     """
     # Load the pretrained unet Model file 
     #TODO locate the pretrained unet model file 
-    model_file = ''
+    model_path = 'C:\\Users\\Linus Meienberg\\Google Drive\\Janelia\\ImageSegmentation\\3D Unet\\retrain0727\\3d_unet_0728.h5'
     # Restore the trained model. Specify where keras can find custom objects that were used to build the unet
     unet = tf.keras.models.load_model(model_path, compile=False,
                                   custom_objects={"InputBlock" : model.InputBlock,
@@ -87,18 +104,18 @@ def apply_unet(img):
 
     # Instantiate a unet tiler and allocate a new mask tensor where the predictions are assembled
     #TODO Update the shapes to the ones used by the unet if necessary
-    tiler = mosaic.UnetTiler3D(image, mask=mask, output_shape=(132,132,132), input_shape=(220,220,220) )
+    tiler = tilingStrategy.UnetTiler3D(image, mask=None, output_shape=(132,132,132), input_shape=(220,220,220) )
 
     # Sequentially process all tiles of the image
     start = time.time()
     for i in range(len(tiler)):
         # Read input slice from volume
-        input_slice = preprocessImage(tiler._getSlice(i))
+        input_slice = preprocessImage(tiler.getSlice(i))
         # Add batch and channel dimension and feed to unet
         output_slice = unet.predict(input_slice[np.newaxis,:,:,:,np.newaxis])
         output_mask = np.argmax(output_slice, axis=-1)[0,...] # use argmax on channels and remove batch dimension
         #print('unet output mask shape : '.format(input_slice.shape))
-        tiler._writeSlice(i, output_mask)
+        tiler.writeSlice(i, output_mask)
     end = time.time()
     # write a message on the console
     print('UNET finished\ntook {:.1f} s for {} tiles'.format(end-start,len(tiler)))
@@ -108,6 +125,7 @@ def apply_unet(img):
 
     return tiler.mask # return the assembled mask
 
+#%% main code for executable
 def main(argv):
     """
     Main function
@@ -131,6 +149,7 @@ def main(argv):
         
     # Read part of the hdf5 image file based upon location
     if len(location):
+        tf_init() # initialize tensorflow
         img = hdf5_read(hdf5_file, location)
         img_path = os.path.dirname(hdf5_file)
     else:
@@ -148,3 +167,6 @@ def main(argv):
 
 if __name__ == "__main__":
     main(sys.argv[1:])
+
+
+# %%
