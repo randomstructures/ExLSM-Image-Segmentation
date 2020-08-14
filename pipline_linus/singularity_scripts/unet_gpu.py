@@ -104,7 +104,7 @@ def apply_unet(img):
 
     # Instantiate a unet tiler and allocate a new mask tensor where the predictions are assembled
     #TODO Update the shapes to the ones used by the unet if necessary
-    tiler = tilingStrategy.UnetTiler3D(image, mask=None, output_shape=(132,132,132), input_shape=(220,220,220) )
+    tiler = tilingStrategy.UnetTiler3D(img, mask=None, output_shape=(132,132,132), input_shape=(220,220,220) )
 
     # Sequentially process all tiles of the image
     start = time.time()
