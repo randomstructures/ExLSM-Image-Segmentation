@@ -210,3 +210,41 @@ def makeRGBComposite(r,g,b,gain=(1,1,1)):
     composite *= gain
     return composite
     
+def showProjections(volumes: list, axis = -1, channel=None, mode='max', title=None, **kwargs):
+    """Plot a projected view of a list of 3d volumes
+
+    Parameters
+    ----------
+    volumes : list
+        a list of 3d volumes in (x,y,z) or optionally (x,y,z,c)
+    axis : int, optional
+        the axis along which the volumes are projected on the image plane, by default -1
+    channel : int , optional
+        the index of the channel to visualize, by default None -> (x,y,z) format
+    mode : str, optional
+        the projection mode either 'max' or 'mean', by default 'max'
+    title : str, optional
+        The plot title, by default None
+    """
+    # Set up a figure with a plot for each volume in the list
+    fig, axs = plt.subplots(1, len(volumes), figsize=(2+4*len(volumes),4))
+    fig.suptitle(title)
+
+    for i, ax in enumerate(axs):
+        # pick the ith volume and a channel of one is specified
+        if not channel is None:
+            volume = volumes[i][...,channel]
+        else:
+            volume = volumes[i]
+        # use max or mean projection according to mode
+        if mode is 'max':
+            projected = np.max(volume, axis=axis)
+        else:
+            projected = np.mean(volume, axis=axis)
+                
+        ax.imshow(projected, **kwargs)
+    
+    plt.show()
+
+
+# %%
