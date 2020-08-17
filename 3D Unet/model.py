@@ -412,9 +412,10 @@ def weighted_sparse_categorical_crossentropy(class_weights):
         # in our case there is a channel dimension of 1 in the mask tensors
         # (b, x, y, z, 1) which can be easily eliminated
         # y true is an integer in [0,n_classes)
-        y_true = K.cast(y_true[...,0], dtype='int32')
+        #y_true = K.cast(y_true[...,0], dtype='int32')
         # expand to one hot encoded tensor (b, x, y, z, c)
-        y_true_expanded = K.one_hot(y_true, num_classes=num_classes)
+        #y_true_expanded = K.one_hot(y_true, num_classes=num_classes)
+        y_true_expanded = K.cast(y_true, tf.float32) # work natively with one hot encoded masks
 
         # our predictions are tensors of shape (b,x,y,z,c)
         # the predicted values are raw logits. Apply softmax normalization along the channel axis to convert each output to a class probability
@@ -494,8 +495,9 @@ def soft_dice_loss(num_classes: int):
     """
     def loss(y_true: tf.Tensor ,y_pred:tf.Tensor ):
         # convert the segmentation mask to one hot encoding
-        y_true = K.cast(y_true[...,0], dtype='int32')
-        ohe_true = K.one_hot(y_true, num_classes)
+        # y_true = K.cast(y_true[...,0], dtype='int32')
+        # ohe_true = K.one_hot(y_true, num_classes)
+        ohe_true = K.cast(y_true, tf.float32)
         # apply softmax to logits
         softmax_pred = K.softmax(y_pred, axis=-1)
         return soft_dice(ohe_true,softmax_pred)

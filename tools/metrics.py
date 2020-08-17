@@ -5,6 +5,7 @@
 """
 #%%
 import numpy as np
+import tensorflow as tf
 from tensorflow.keras import backend as K
 
 def intersection_over_union(true_mask, predicted_mask, num_classes=2, smooth=1):
@@ -44,6 +45,17 @@ def intersection_over_union(true_mask, predicted_mask, num_classes=2, smooth=1):
     
     return iou
 
+# TODO implement working mean iou in keras backend
+
+class MeanIoU(tf.keras.metrics.MeanIoU):
+    def __init__(self, num_classes, name=None, dtype=None):
+        super(MeanIoU, self).__init__(num_classes, name, dtype)
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = K.cast(K.argmax(y_true,axis=-1), tf.int32)
+        y_pred = K.cast(K.argmax(y_pred,axis=-1), tf.int32)
+        return super(MeanIoU, self).update_state(y_true,y_pred,sample_weight)
+
 def keras_IoU(num_classes = 2, smooth=1):
     """Return a callable / metric that returns the mean IoU for a semantic segmentation task.
 
@@ -54,6 +66,7 @@ def keras_IoU(num_classes = 2, smooth=1):
     smooth : int, optional
         a constant used to smooth IoU values in very rare cases, by default 1
     """
+    
     def IoU(y_true, y_pred):
         """Returns the mean IoU for a semantic segmentation task.
 
@@ -66,15 +79,10 @@ def keras_IoU(num_classes = 2, smooth=1):
         """
         # convert the model output to a sparse segmentation mask (use argmax on channel axis since argmax on logits and pseudoprobabilities is the same)
         mask_pred = K.argmax(y_pred, axis=-1)
-        iou = []
-        # calculate iou for every class
-        for c in range(num_classes):
-            target = y_pred == c # pixels where true segmentation mask indicates class c
-            prediction = mask_pred == c # pixels where predicted mask indicates class c
-            intersection = np.sum(target & prediction)
-            union = np.sum(target) + np.sum(prediction) - intersection
-            iou.append((intersection+smooth)/(union+smooth))
-        return K.mean(iou)
+        mask_true = K.argmax(y_true, axis=-1)
+        
+
+        return metrics
 
     return IoU
 # %%
