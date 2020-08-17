@@ -14,16 +14,58 @@ from tqdm import tqdm
 import tilingStrategy
 
 
-def getRandomIndices(tiler, n_samples):
+def getRandomIndices(tiler: tilingStrategy.UnetTiler3D , n_samples: int) -> list:
+    """Samples random indices from a tiled image volume
+
+    Parameters
+    ----------
+    tiler : tilingStrategy.UnetTiler3D
+        A Tiled image volume
+    n_samples : int
+        the number of samples to draw
+
+    Returns
+    -------
+    list
+        the indices of the random tiles
+    """
     assert n_samples<len(tiler), 'Cannot sample more than {} samples from this tiling'.format(len(tiler))
     sample_indices = np.random.choice( np.arange(len(tiler)), size=n_samples, replace=False) # choose n_samples random chunks from the volume
     return sample_indices
 
-def getMeanSignalStrengths(tiler, indices):
+def getMeanSignalStrengths(tiler: tilingStrategy.UnetTiler3D, indices: list) -> list:
+    """Get a list of mean signal strength (average pixel value) for a list of tile indices
+
+    Parameters
+    ----------
+    tiler : tilingStrategy.UnetTiler3D
+        A tiled image volume
+    indices : list
+        tile indices
+
+    Returns
+    -------
+    list
+        the signal strength in each tile
+    """
     mean_signal_strengths = [ np.mean(tiler._cropAndPadAABB(tiler.image,tiler._getOutputTile(i))) for i in tqdm(indices) ]
     return mean_signal_strengths
 
-def sampleMaskProportion(tiler, indices):
+def sampleMaskProportion(tiler: tilingStrategy.UnetTiler3D, indices: list) -> list:
+    """Get a list of mask proportions for each tile. Mask proportion is the fraction of foreground / object pixels in the output region of a tile.
+
+    Parameters
+    ----------
+    tiler : tilingStrategy.UnetTiler3D
+        A tiled image volume
+    indices : list
+        tile indices
+
+    Returns
+    -------
+    list
+        the mask proportion in each tile
+    """
     sample_volume = np.prod(tiler.output_shape) # number of pixels in the sample volume
     sample_mask_proportion = [ 
         np.count_nonzero(tiler._cropAndPadAABB(tiler.mask,tiler._getOutputTile(i))) / sample_volume
@@ -32,30 +74,34 @@ def sampleMaskProportion(tiler, indices):
     return sample_mask_proportion
 
 
-def thresholdedSampling(indices, sample_mean_signal, threshold, n_samples, object_ratio=0.5):
-    """Choose samples from a volume based on their average signal strength.
-    Samples are split in two groups by a mean signal threshold. 
-    Random samples are drawn from each of the two groups so that the one exceeding the threshold maskes of the specified object ratio.
+def thresholdedSampling(indices: list, scalar_measure: list, threshold: float, n_samples: int, above_threshold_ratio=0.5) -> list:
+    """Sample tile indices from a list based on a scalar_measure known for each tile. Tiles are grouped in two categories by thresholding the scalar measure. 
+    The above_threshold_ratio specifies the fraction of indices that should belong to the group exceeding the threshold.
 
     Parameters
     ----------
     indices : list
-        list of sample indices
-    sample_mean_signal : list
-        list of mean signal strengths
-    threshold : floatr
-        signal strength threshold
-    n_samples : int 
-        the number of samples to draw
-    object_ratio : float, optional
-        the ratio of sampes exceeding the threshold in the returned list, by default 0.5
+        tile indices to sample from
+    scalar_measure : list
+        scalar measure calculated for each tile
+    threshold : float
+        the threshold applied to the scalar measure
+    n_samples : int
+        the number of indices in the output list
+    above_threshold_ratio : float, optional
+        The proportion of above threshold tiles in the output list, by default 0.5
+
+    Returns
+    -------
+    list
+        tile indices
     """
     # clip value to prevent nummerical errors
-    object_ratio = np.clip(object_ratio,1e-4,1-1e-4)
+    above_threshold_ratio = np.clip(above_threshold_ratio,1e-4,1-1e-4)
     # split the indeces
-    is_high = [int(signal > threshold) for signal in sample_mean_signal]
+    is_high = [int(signal > threshold) for signal in scalar_measure]
     # weight each sample by it's class probability
-    proba = np.multiply(is_high, object_ratio/np.sum(is_high)) + np.multiply(np.subtract(1,is_high), (1-object_ratio)/(len(is_high)-np.sum(is_high)))
+    proba = np.multiply(is_high, above_threshold_ratio/np.sum(is_high)) + np.multiply(np.subtract(1,is_high), (1-above_threshold_ratio)/(len(is_high)-np.sum(is_high)))
     #print(proba)
     samples = np.random.choice(indices, size=n_samples, replace=False, p=proba)
     return samples
@@ -222,6 +268,44 @@ class Dataset():
         for atr in self.dataset_h5[key].attrs.keys():
             metadata[atr] = self.dataset_h5[key].attrs[atr]
         return (image, mask, metadata)
+
+    def get_Record_by_Metadata(self, attribute_key : str, attribute_value=None) -> list :
+        """Gets all records in the dataset that have an entry specified by the key.
+        Only return the records where the entry has the specified value, if specified.
+
+        Parameters
+        ----------
+        attribute_key : str
+            The key of the metadata entry / record attribute to search for.
+        attribute_value : str, optional
+            The required value of the metadata entry / record attribute 
+            for the record to be included in the output list, by default None
+
+        Returns
+        -------
+        list
+            The keys of all records in the dataset that have the specified attribute and optionally the specified value.
+        """
+        keys = []
+
+        # iterate over all records in the dataset
+        for record_key in self.keys():
+            # Get the metadata of the record
+            record_attributes = self.dataset_h5[record_key].attrs
+            # Check if the key is contained in the record metadata
+            if attribute_key in record_attributes.keys:
+                # check if value comparison is needed
+                if not attribute_value is None:
+                    # compare values
+                    if str(record_attributes[attribute_key]) == attribute_value:
+                        keys.append(record_key)
+                    else:
+                        pass
+                        # Don't add the record since it's 'key' attribute has not the desired value
+                else: # No value comparison is needed
+                    keys.append(record_key)
+        
+        return keys 
 
     def getGenerator(self, keys):
         """Returns a generator function that iterates over the specified keys.
