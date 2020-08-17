@@ -5,6 +5,7 @@
 """
 #%%
 import numpy as np
+from tensorflow.keras import backend as K
 
 def intersection_over_union(true_mask, predicted_mask, num_classes=2, smooth=1):
     """Calculate the intersection over union metric for two sparse segmentation masks.
@@ -43,4 +44,37 @@ def intersection_over_union(true_mask, predicted_mask, num_classes=2, smooth=1):
     
     return iou
 
+def keras_IoU(num_classes = 2, smooth=1):
+    """Return a callable / metric that returns the mean IoU for a semantic segmentation task.
+
+    Parameters
+    ----------
+    num_classes : int, optional
+        the number of classes, by default 2
+    smooth : int, optional
+        a constant used to smooth IoU values in very rare cases, by default 1
+    """
+    def IoU(y_true, y_pred):
+        """Returns the mean IoU for a semantic segmentation task.
+
+        Parameters
+        ----------
+        y_true : tf.Tensor
+            a sparse categorical ground thruth segmentation mask (x,y,z,)
+        y_pred : tf.Tensor
+            multichannel logit predictions for each category 
+        """
+        # convert the model output to a sparse segmentation mask (use argmax on channel axis since argmax on logits and pseudoprobabilities is the same)
+        mask_pred = K.argmax(y_pred, axis=-1)
+        iou = []
+        # calculate iou for every class
+        for c in range(num_classes):
+            target = y_pred == c # pixels where true segmentation mask indicates class c
+            prediction = mask_pred == c # pixels where predicted mask indicates class c
+            intersection = np.sum(target & prediction)
+            union = np.sum(target) + np.sum(prediction) - intersection
+            iou.append((intersection+smooth)/(union+smooth))
+        return K.mean(iou)
+
+    return IoU
 # %%

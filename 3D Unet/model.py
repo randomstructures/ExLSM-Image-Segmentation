@@ -16,6 +16,7 @@ Implementation details inspired by the model code a the NVIDIA Deep Learning Exa
 import tensorflow as tf 
 import tensorflow.keras.backend as K
 import numpy as np
+import kerastuner
 
 #%% CONSTRUCTION OF UNET by subclassing model
 
@@ -98,6 +99,52 @@ def build_unet(input_shape, n_blocks= 2, initial_filters= 32, **kwargs):
     x = OutputBlock(filters, n_classes=2)([x,skips.pop()])
     
     unet = tf.keras.Model(inputs=inputs, outputs=x)
+    return unet
+
+#%% Build a unet from a keras-tuner hyperparameter dictionary
+def build_unet_with_hp(input_shape, hp: kerastuner.HyperParameters, n_blocks=2):
+    # Create a placeholder for the data that will be fed to the model
+    inputs = tf.keras.layers.Input(shape=input_shape)
+    x = inputs
+    skips = []
+
+    # instantiate unet blocks
+    # Choose the number of initial filters
+    filters = hp.Int('initial_filters', 2, 16, default=4)
+
+    # Thread through input block
+    x, residual = InputBlock(initial_filters=filters)(x)
+    skips.append(residual)
+    filters *= 2 # filters are doubled in second conv operation
+    
+    for index in range(n_blocks):
+        x, residual = DownsampleBlock(filters=filters, index=index+1)(x)
+        skips.append(residual)
+        filters *= 2  # filters are doubled in second conv operation
+
+    x = BottleneckBlock(filters, dropout_rate=hp.Float('bottleneck_dropout',0,0.5,step=0.1, default=0.2))(x)
+    filters *= 2  # filters are doubled in second conv operation
+
+    for index in range(n_blocks)[::-1]:
+        filters = filters//2  # half the number of filters in first convolution operation
+        x = UpsampleBlock(filters, index+1)([x, skips.pop()])
+
+    filters = filters//2 # half the number of filters in first convolution operation
+    x = OutputBlock(filters, n_classes=2)([x,skips.pop()])
+    
+    unet = tf.keras.Model(inputs=inputs, outputs=x)
+
+    # Compile the model
+    unet.compile(
+        optimizer = tf.keras.optimizers.Adam(
+            lr=hp.Float('learning_rate', 1e-4, 1e-2, sampling='log')),
+            loss = weighted_cce_dice_loss(
+                num_classes=2,
+                class_weights= [1, hp.Int('foreground_weight',1,60,step=5, default=20)],
+                dice_weight=hp.Float('dice_weight',0,1,step=0.1)),
+            metrics = ['accuracy',tf.keras.metrics.MeanIoU(num_classes=2, name='IoU')]
+        )
+
     return unet
 
 
@@ -339,6 +386,17 @@ class OutputBlock(tf.keras.layers.Layer):
         config.update({"filters" : self.filters, "n_classes" : self.n_classes})
         return config
 
+
+def weighted_cce_dice_loss(num_classes: int, class_weights, dice_weight=1):
+    dice_weight = tf.keras.backend.variable(dice_weight)
+    cce = weighted_sparse_categorical_crossentropy(class_weights)
+    dice = soft_dice_loss(num_classes)
+    
+    def cce_dice(y_true, y_pred):
+        return (1-dice_weight)*cce(y_true,y_pred) + dice_weight*dice(y_true,y_pred)
+
+    return cce_dice
+
 # %%
 def weighted_sparse_categorical_crossentropy(class_weights):
     # As seen on GitHub https://gist.github.com/wassname/ce364fddfc8a025bfab4348cf5de852d by wassname
@@ -414,7 +472,7 @@ def weighted_sparse_categorical_crossentropy_v2(class_weights):
     return loss
 
 
-def soft_dice_loss(y_true, y_pred, num_classes):
+def soft_dice_loss(num_classes: int):
     """
     Soft dice loss is derived from the dice score. 
     It measures the overlap between the predicted and true mask regions for each channel.
@@ -434,12 +492,15 @@ def soft_dice_loss(y_true, y_pred, num_classes):
     callable   
         the averaged soft dice loss
     """
-    def loss(y_true,y_pred):
+    def loss(y_true: tf.Tensor ,y_pred:tf.Tensor ):
         # convert the segmentation mask to one hot encoding
+        y_true = K.cast(y_true[...,0], dtype='int32')
         ohe_true = K.one_hot(y_true, num_classes)
         # apply softmax to logits
         softmax_pred = K.softmax(y_pred, axis=-1)
         return soft_dice(ohe_true,softmax_pred)
+
+    return loss
 
 # %%
 def soft_dice(y_true, y_pred, epsilon=1e-6):
@@ -468,4 +529,4 @@ def soft_dice(y_true, y_pred, epsilon=1e-6):
     numerator = 2. * K.sum(y_pred * y_true, axes)
     denominator = K.sum(K.square(y_pred) + K.square(y_true), axes)
     
-    return 1 - np.mean((numerator + epsilon) / (denominator + epsilon)) # average over classes and batch
+    return 1 - K.mean((numerator + epsilon) / (denominator + epsilon)) # average over classes and batch
