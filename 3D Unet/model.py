@@ -398,77 +398,26 @@ def weighted_cce_dice_loss(num_classes: int, class_weights, dice_weight=1):
     return cce_dice
 
 # %%
-def weighted_sparse_categorical_crossentropy(class_weights):
+
+def weighted_categorical_crossentropy(class_weights):
     # As seen on GitHub https://gist.github.com/wassname/ce364fddfc8a025bfab4348cf5de852d by wassname
-    weights = tf.keras.backend.variable(class_weights)
+    weights = tf.keras.backend.variable(class_weights, dtype=tf.float32)
     num_classes = len(class_weights)
 
     def loss(y_true, y_pred):
         # Keras defines the following shapes for the inputs to the loss function:
-        # y_true => (batch_size, d0, ..., dN-1) for sparse loss functions
-        # y_pred => (batch_size, d0, ..., dN-1, c) for predicted values
-        # where c denotes the number of classes
-        
-        # in our case there is a channel dimension of 1 in the mask tensors
-        # (b, x, y, z, 1) which can be easily eliminated
-        # y true is an integer in [0,n_classes)
-        #y_true = K.cast(y_true[...,0], dtype='int32')
-        # expand to one hot encoded tensor (b, x, y, z, c)
-        #y_true_expanded = K.one_hot(y_true, num_classes=num_classes)
-        y_true_expanded = K.cast(y_true, tf.float32) # work natively with one hot encoded masks
-
-        # our predictions are tensors of shape (b,x,y,z,c)
-        # the predicted values are raw logits. Apply softmax normalization along the channel axis to convert each output to a class probability
-        y_pred_softmax = K.softmax(y_pred, axis=-1)
-        # clip to prevent NaN's and Inf's
-        y_pred_softmax = K.clip(y_pred_softmax, K.epsilon(), 1 - K.epsilon()) 
-        
-        # crossentropy is the negative sum of y_true*log(y_pred)
-        # tensorflow uses operator overriding tf.tensor * tf.tensor invokes tf.math.multiply
-        # tf.math.multiply uses array broadcasting as explained here (https://numpy.org/doc/stable/user/basics.broadcasting.html) if tensors have differing shapes
-        l = y_true_expanded * K.log(y_pred_softmax) # element wise multiplication that preserves tensor shape (b,x,y,z,c)
-        l_weighted = l * weights # (b,x,y,z,c) * (c,)  uses broadcasting of (c,) to the shape of (b,x,y,z,c,) so that effectively each channel is multiplied by the appropriate weight
-                
-        # we now have computed a tensor of weighted, pixel wise contributions to the loss
-        # sum up the tensor along all spatial coordinates to get an array of loss per sample in the batch
-        sum = K.sum(l_weighted, axis=-1) # sum over channels (b,x,y,z,)
-        sum = K.sum(sum, axis=-1) # sum z (b,x,y,)
-        sum = K.sum(sum, axis=-1) # sum y (b,x,)
-        sum = K.sum(sum, axis=-1) # sum x => array of length (b,)
-        # divide the loss by the number of pixels in each sample for better comparability
-        sum /= tf.reduce_sum(tf.ones_like(y_pred[0,...]))
-        return -sum # return the negative sum
-    
-    return loss
-
-
-# %%
-
-def weighted_sparse_categorical_crossentropy_v2(class_weights):
-    # As seen on GitHub https://gist.github.com/wassname/ce364fddfc8a025bfab4348cf5de852d by wassname
-    weights = tf.keras.backend.variable(class_weights)
-    num_classes = len(class_weights)
-
-    def loss(y_true, y_pred):
-        # Keras defines the following shapes for the inputs to the loss function:
-        # y_true => (batch_size, d0, ..., dN-1) for sparse loss functions
-        # y_pred => (batch_size, d0, ..., dN-1, c) for predicted values
-        # where c denotes the number of classes
-        
-        # in our case there is a channel dimension of 1 in the mask tensors
-        # (b, x, y, z, 1) which can be easily eliminated
-        # y true is an integer in [0,n_classes)
-        y_true = K.cast(y_true[...,0], dtype='int32')
-        labels_one_hot = K.one_hot(y_true, num_classes=num_classes)
+        # y_true => (batch_size, d0, ..., dN) for ground truth
+        # y_pred => (batch_size, d0, ..., dN) for predicted values
+        # where dN is a channel dimension whose length is the number of classes c
         
         # deduce weights for batch samples based on their true label (tensor of the same shape as onehot_labels with the corresponding class weight as value)
-        voxel_weights = tf.reduce_sum(weights * labels_one_hot, axis=-1)
+        voxel_weights = tf.reduce_sum(weights * K.cast(y_true, tf.float32), axis=-1) # reduce along last axis( (c,) * (b,x,y,z,c) ) -> (b,x,y,z)
 
         # compute a tensor with the unweighted cross entropy loss
-        unweighted_loss = tf.nn.softmax_cross_entropy_with_logits(labels=labels_one_hot,logits=y_pred) #(x,y,z,c)
-        weighted_loss = unweighted_loss * voxel_weights # (x,y,z,c) * (c,) broadcasts the second array such that each channel is multiplied by it's weight
+        unweighted_loss = tf.keras.losses.categorical_crossentropy(y_true,y_pred, from_logits=True) #(b,x,y,z)
+        weighted_loss = unweighted_loss * voxel_weights # (b,x,y,z) * (b,x,y,z) broadcasts the second array such that each channel is multiplied by it's weight
 
-        return tf.reduce_mean(weighted_loss, axis=[1,2,3])
+        return tf.reduce_mean(weighted_loss, axis=[1,2,3]) #(b,)
     
     return loss
 
@@ -532,3 +481,24 @@ def soft_dice(y_true, y_pred, epsilon=1e-6):
     denominator = K.sum(K.square(y_pred) + K.square(y_true), axes)
     
     return 1 - K.mean((numerator + epsilon) / (denominator + epsilon)) # average over classes and batch
+
+"""
+#%% Test loss fn 
+
+weights = [2,1]
+loss = weighted_categorical_crossentropy(weights)
+
+
+y_true = np.array([[0,1],[1,0]])[np.newaxis,np.newaxis,np.newaxis,...]
+#y_pred = np.array([[0.5,0.5],[0.5,0.5]], np.float32)[np.newaxis,np.newaxis,np.newaxis,...]
+y_pred = np.array([[10.,10.],[-10.,10.]], np.float32)[np.newaxis,np.newaxis,np.newaxis,...]
+
+print(tf.nn.softmax(y_pred))
+
+#%% Reference loss -> sum of pixel wise categorical crossentropy in batch
+#tf.reduce_sum( tf.keras.losses.categorical_crossentropy(y_true,y_pred, from_logits=True), axis=[1,2,3] )
+tf.keras.losses.categorical_crossentropy(y_true,y_pred, from_logits=True)*tf.constant([1.,2.])
+# %%
+loss(y_true,y_pred)
+# %%
+"""
