@@ -348,4 +348,4 @@ class UnetTiler3D():
         assert index>=0 and index < len(self), 'Index out of bounds'
         aabb = self.tiling.getOutputTile(index) # retrieve aabb that belongs to the slice index
         self.mask.writeAABB(aabb, tile)
-        
+

@@ -49,12 +49,12 @@ def intersection_over_union(true_mask, predicted_mask, num_classes=2, smooth=1):
 
 class MeanIoU(tf.keras.metrics.MeanIoU):
     def __init__(self, num_classes, name=None, dtype=None):
-        super(MeanIoU, self).__init__(num_classes, name, dtype)
+        super().__init__(num_classes, name, dtype)
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         y_true = K.cast(K.argmax(y_true,axis=-1), tf.int32)
         y_pred = K.cast(K.argmax(y_pred,axis=-1), tf.int32)
-        return super(MeanIoU, self).update_state(y_true,y_pred,sample_weight)
+        return super().update_state(y_true,y_pred,sample_weight)
 
 def keras_IoU(num_classes = 2, smooth=1):
     """Return a callable / metric that returns the mean IoU for a semantic segmentation task.
@@ -73,16 +73,27 @@ def keras_IoU(num_classes = 2, smooth=1):
         Parameters
         ----------
         y_true : tf.Tensor
-            a sparse categorical ground thruth segmentation mask (x,y,z,)
+            a one hot encoded categorical ground thruth segmentation mask (x,y,z,c)
         y_pred : tf.Tensor
             multichannel logit predictions for each category 
         """
         # convert the model output to a sparse segmentation mask (use argmax on channel axis since argmax on logits and pseudoprobabilities is the same)
         mask_pred = K.argmax(y_pred, axis=-1)
         mask_true = K.argmax(y_true, axis=-1)
-        
+        # Sum up the intersection over union score for each class
+        iou = 0
+        for c in range(num_classes):
+            # Binary arrays (class present / absent at each pixel) for ground thruth and prediction
+            target = K.cast(mask_true == c, tf.bool)
+            prediction = K.cast(mask_pred == c, tf.bool)
+            # Intersection is element wise and
+            intersection = K.sum(tf.logical_and(target, prediction))
+            # Union is sum minus intersection
+            union = K.sum(target) + K.sum(prediction) - intersection
+            iou += ((intersection+smooth)/(union+smooth))
 
-        return metrics
+        # divide by number of classes to get mean class IoU
+        return iou /num_classes
 
     return IoU
 # %%
