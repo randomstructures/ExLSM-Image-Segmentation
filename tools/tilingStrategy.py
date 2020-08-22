@@ -284,7 +284,7 @@ class UnetTiler3D():
         if mask is None:
             self.mask = Canvas(np.zeros_like(image)) # Allocate a tensor where the segmentation mask is stored
         else:
-            assert self.image_shape == mask.shape, 'The mask and image array need to be of the same shape'
+            assert self.image.shape == mask.shape, 'The mask and image array need to be of the same shape'
             self.mask = Canvas(mask)
 
         # Instantiate UnetTiling over image and mask
@@ -297,40 +297,52 @@ class UnetTiler3D():
     def __len__(self):
         return np.prod(self.shape)
 
-    def getSlice(self, index):
+    def getSlice(self, index, outputOnly=False):
         """Get the i-th input tile of the image.
 
         Parameters
         ----------
         index : int
             the index of the image tile
+        outputOnly : bool
+            wheter the slice should be narrowed down to the output region only
 
         Returns
         -------
         3d tensor
             the i-th input tile of the image
         """
-        # get the aabb of the unet input slice
-        aabb = self.tiling.getInputTile(index)
+        if outputOnly:
+            aabb = self.tiling.getOutputTile(index)
+        else:
+            # get the aabb of the unet input slice
+            aabb = self.tiling.getInputTile(index)
         # read out the aabb from the image data
         data = self.image.cropAndPadAABB(aabb)
         return data
 
-    def getMaskSlice(self, index):
+    def getMaskSlice(self, index, cropped=True):
         """Get the i-th output tile of the mask.
 
         Parameters
         ----------
         index : int
             the index of the mask tile
+        cropped : bool
+            wheter to extract the cropped (output) region of the mask tile or the whole input region (congruent to getSlice)
 
         Returns
         -------
         3d tensor
             the i-th output tile of the mask
         """
-        # get the aabb of the unet OUTPUT slice
-        aabb = self.tiling.getOutputTile(index)
+        if cropped:
+            # get the aabb of the unet OUTPUT slice
+            aabb = self.tiling.getOutputTile(index)
+        else:
+            # get the aabb of the unet INPUT slice
+            aabb = self.tiling.getInputTile(index)
+        # extract the specified region from the mask array    
         data = self.mask.cropAndPadAABB(aabb)
         return data
     
