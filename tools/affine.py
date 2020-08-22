@@ -71,7 +71,7 @@ def getRandomRotation():
     alpha = np.random.uniform() * 2 * math.pi
     beta = np.random.uniform() * 1 * math.pi
     gamma = np.random.uniform() * 2 * math.pi
-    print((alpha,beta,gamma))
+    #print((alpha,beta,gamma))
     return constructRotationMatrix(alpha, beta, gamma)
 
 # %%

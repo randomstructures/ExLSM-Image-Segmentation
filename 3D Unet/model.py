@@ -389,7 +389,7 @@ class OutputBlock(tf.keras.layers.Layer):
 
 def weighted_cce_dice_loss(num_classes: int, class_weights, dice_weight=1):
     dice_weight = tf.keras.backend.variable(dice_weight)
-    cce = weighted_sparse_categorical_crossentropy(class_weights)
+    cce = weighted_categorical_crossentropy(class_weights)
     dice = soft_dice_loss(num_classes)
     
     def cce_dice(y_true, y_pred):
