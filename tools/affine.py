@@ -14,6 +14,26 @@ from scipy import ndimage
 
 # %%
 
+
+def s(x):
+    return math.sin(x)
+def c(x):
+    return math.cos(x)
+
+# r_z : rotation around z axis by angle x in [0,2Pi]
+def R_z(x):
+    return np.array(
+            [[c(x), -s(x), 0],
+            [s(x), c(x),  0],
+            [   0,    0,   1]])
+# r_x : rotation around x axis by angle x in [0, Pi]
+def R_x(x):
+    return np.array(
+            [[   1,    0,  0],
+            [   0, c(x),-s(x)],
+            [   0, s(x), c(x)]])
+
+
 def constructRotationMatrix(alpha, beta, gamma):
     """Construct a three dimensional rotation matrix described by three euler angles in active xzx convention
 
@@ -30,28 +50,12 @@ def constructRotationMatrix(alpha, beta, gamma):
     # Construct a general rotation matrix by composition of three elementary rotations
     # see Wikipedia (https://de.wikipedia.org/wiki/Eulersche_Winkel) Abbildungsmatrix aktive Drehung
 
-    def s(x):
-        return math.sin(x)
-    def c(x):
-        return math.cos(x)
-
-    # r_z : rotation around z axis by angle x in [0,2Pi]
-    def R_z(x):
-        return [[c(x), -s(x), 0],
-                [s(x), c(x),  0],
-                [   0,    0,   1]]
-    # r_x : rotation around x axis by angle x in [0, Pi]
-    def R_x(x):
-        return [[   1,    0,  0],
-                [   0, c(x),-s(x)],
-                [   0, s(x), c(x)]]
-
     assert (alpha>=0) & (beta>=0) & (gamma>=0), 'specify nonnegative euler angles' 
-    assert (alpha<=2*math.pi) & (gamma<=2*math.pi), 'specify alpha / gamma below 2Pi radians'
-    assert beta<=math.pi, 'specify beta below Pi radians'
 
-    r = np.matmul(R_z(gamma),R_x(beta))
-    r = np.matmul(r,R_z(alpha))
+    rzgamma = R_z(gamma)
+    rxbeta = R_x(beta)
+    rzalpha = R_z(alpha)
+    r = np.matmul(rzalpha, np.matmul(rxbeta, rzgamma))
     return r
 
 # %%
@@ -67,7 +71,8 @@ def getRandomRotation():
     alpha = np.random.uniform() * 2 * math.pi
     beta = np.random.uniform() * 1 * math.pi
     gamma = np.random.uniform() * 2 * math.pi
-    return constructRotationMatrix(alpha,beta,gamma)
+    print((alpha,beta,gamma))
+    return constructRotationMatrix(alpha, beta, gamma)
 
 # %%
 def constructScalingMatrix(scaling_factor):

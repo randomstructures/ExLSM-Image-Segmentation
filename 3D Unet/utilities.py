@@ -204,11 +204,28 @@ def tf_affine(image: tf.Tensor, mask: tf.Tensor):
     return image, mask
 
 def elasticDeformation(image, mask):
+    """Apply the same elastic deformation to an image and it's associated mask
+
+    Parameters
+    ----------
+    image : tensor
+    mask : tensor
+
+    Returns
+    -------
+    image, mask
+        elasticaly deformed tensors
+    """
+    # We know that the mask region is equal or smaller than the image region
+    # Generate a displacement Field for the image region
     displacementField = deformation.displacementGridField3D(image_shape=image.shape)
+    # Calculate the crop to extract the mask region from the image region
     crop = tuple([(image.shape[i]-mask.shape[i])//2 for i in range(len(image.shape))])
+    # Extract the part of the displacement field that applies to the mask
     mask_displacementField = tuple(
                 [dd[crop[0]:-crop[0] or None,crop[1]:-crop[1] or None, crop[2]:-crop[2] or None] 
                 for dd in displacementField])
+    # apply displacement fields
     image = deformation.applyDisplacementField3D(image, *displacementField, interpolation_order=1)
     mask = deformation.applyDisplacementField3D(mask, *mask_displacementField, interpolation_order=0)
     return image, mask
@@ -371,5 +388,19 @@ class Dataset3D(keras.utils.Sequence):
         return batch_images, batch_masks
 
 
+def getTestImage(image_size = (220,220,220), mask_size= (132,132,132)):
+    image = np.zeros(image_size, dtype=np.float32)
+    # generate a stripe pattern
+    for z in range(0,image_size[0],50):
+        image[z:z+10,:,:] = np.ones((10,image_size[1],image_size[2]))
+    
+    # paint axes
+    #image[:,:50,:50] = 1
+    #image[:50,:,:50] = 1
+    #image[:50,:50,:] = 1
 
-
+    mask = image
+    if not image_size == mask_size:
+                crop = tuple([(image_size[i]-mask_size[i])//2 for i in range(len(image_size))])
+                mask = mask[crop[0]:-crop[0] or None,crop[1]:-crop[1] or None, crop[2]:-crop[2] or None]
+    return image[...,np.newaxis], mask[...,np.newaxis]

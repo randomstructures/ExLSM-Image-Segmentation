@@ -48,7 +48,7 @@ def getMeanSignalStrengths(tiler: tilingStrategy.UnetTiler3D, indices: list) -> 
     list
         the signal strength in each tile
     """
-    mean_signal_strengths = [ np.mean(tiler._cropAndPadAABB(tiler.image,tiler._getOutputTile(i))) for i in tqdm(indices) ]
+    mean_signal_strengths = [ np.mean(tiler.getSlice(i, outputOnly=True)) for i in tqdm(indices)]
     return mean_signal_strengths
 
 def sampleMaskProportion(tiler: tilingStrategy.UnetTiler3D, indices: list) -> list:
@@ -66,9 +66,9 @@ def sampleMaskProportion(tiler: tilingStrategy.UnetTiler3D, indices: list) -> li
     list
         the mask proportion in each tile
     """
-    sample_volume = np.prod(tiler.output_shape) # number of pixels in the sample volume
+    sample_volume = np.prod(tiler.tiling.output_shape) # number of pixels in the sample volume
     sample_mask_proportion = [ 
-        np.count_nonzero(tiler._cropAndPadAABB(tiler.mask,tiler._getOutputTile(i))) / sample_volume
+        np.count_nonzero(tiler.getMaskSlice(i)) / sample_volume
          for i in tqdm(indices) ]
 
     return sample_mask_proportion
@@ -164,7 +164,7 @@ class Dataset():
     def keys(self):
         return self.dataset_h5.keys()
 
-    def add_tiles(self, tiler, indices, key_prefix='', preprocessingFunction= None, binarizeMask = False, metadata = {}):
+    def add_tiles(self, tiler, indices, key_prefix='', cropMask=False, preprocessingFunction= None, binarizeMask = False, metadata = {}):
         """Add a multiple records specified by a tiler and a list of indices.
 
         Parameters
@@ -175,6 +175,8 @@ class Dataset():
             the indices of the tiles to add
         key_prefix : str, optional
             prefix to the tile index, used to create the record key, by default ''
+        cropMask : bool
+            wheter to save precropped mask tiles or congruent image mask pairs
         preprocessingFunction : callable, optional
             preprocessing function to apply to the input, by default None
         binarizeMask : bool, optional
@@ -185,7 +187,7 @@ class Dataset():
         for index in tqdm(indices, desc='Tiles added'):
             
             # fetch the data
-            image, mask = tiler.getSlice(index), tiler.getMaskSlice(index)
+            image, mask = tiler.getSlice(index), tiler.getMaskSlice(index, cropped=cropMask)
 
             # preprocess if necessary
             if not preprocessingFunction is None:
