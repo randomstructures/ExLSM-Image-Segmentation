@@ -218,16 +218,18 @@ def elasticDeformation(image, mask):
     """
     # We know that the mask region is equal or smaller than the image region
     # Generate a displacement Field for the image region
-    displacementField = deformation.displacementGridField3D(image_shape=image.shape)
+    displacementField = deformation.displacementGridField3D(image.shape)
+    #displacementField = deformation.smoothedRandomField(image.shape, alpha=300, sigma=8)
     # Calculate the crop to extract the mask region from the image region
-    crop = tuple([(image.shape[i]-mask.shape[i])//2 for i in range(len(image.shape))])
+    #crop = tuple([(image.shape[i]-mask.shape[i])//2 for i in range(len(image.shape))])
     # Extract the part of the displacement field that applies to the mask
-    mask_displacementField = tuple(
-                [dd[crop[0]:-crop[0] or None,crop[1]:-crop[1] or None, crop[2]:-crop[2] or None] 
-                for dd in displacementField])
+    #mask_displacementField = tuple(
+    #            [dd[crop[0]:-crop[0] or None,crop[1]:-crop[1] or None, crop[2]:-crop[2] or None] 
+    #            for dd in displacementField])
     # apply displacement fields
     image = deformation.applyDisplacementField3D(image, *displacementField, interpolation_order=1)
-    mask = deformation.applyDisplacementField3D(mask, *mask_displacementField, interpolation_order=0)
+    #mask = deformation.applyDisplacementField3D(mask, *mask_displacementField, interpolation_order=0)
+    mask = deformation.applyDisplacementField3D(mask, *displacementField, interpolation_order=0)
     return image, mask
 
 def affineTransformation(image, mask):
