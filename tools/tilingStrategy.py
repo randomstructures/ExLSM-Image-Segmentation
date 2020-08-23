@@ -95,7 +95,9 @@ class UnetTiling3D(Tiling):
     def coordinatesToIndex(self,x,y,z):
         """Converts the coordinates of a tile in the tiling grid to it's index
         """
-        assert (x,y,z) < self.shape and (x,y,z) >= (0,0,0), 'Coordinates out of bounds'
+        assert x < self.shape[0] and x >= 0, 'Coordinates out of bounds'
+        assert y < self.shape[1] and y >= 0, 'Coordinates out of bounds'
+        assert z < self.shape[2] and z >= 0, 'Coordinates out of bounds'
         i = x*self.shape[1]*self.shape[2]
         i += y*self.shape[2]
         i += z
@@ -143,6 +145,36 @@ class UnetTiling3D(Tiling):
         delta = np.concatenate((-delta, delta))
         aabb = np.add(aabb,delta) # element wise addition
         return tuple(aabb)
+
+    def getAdjacentTiles(self, i : int) -> list:
+        """Returns a list with the indices of adjacent tiles. (Rectangular tiles that share a face with the reference tile)
+
+        Parameters
+        ----------
+        i : int
+            index of the reference tile
+
+        Returns
+        -------
+        list
+            indices of adjacent tiles
+        """
+        adjacent = []
+        # get the coordinates of the current tile
+        coords = self.indexToCoordinates(i)
+        # In every dimension
+        for d in range(3):
+            # Add or subtract one position
+            for n in [-1,1]:
+                try:
+                    new_coords = list(coords)
+                    new_coords[d] += n
+                    # try to convert to tile index -> fails if nonexistent
+                    new_i = self.coordinatesToIndex(*new_coords)
+                    adjacent.append(new_i)
+                except AssertionError:
+                    pass
+        return adjacent
 
 #%%
 class OverlappingUnetTiling3D(UnetTiling3D):
