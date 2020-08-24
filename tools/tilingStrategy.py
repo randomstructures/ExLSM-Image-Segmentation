@@ -157,7 +157,7 @@ class UnetTiling3D(Tiling):
         Returns
         -------
         list
-            indices of adjacent tiles
+            indices of adjacent tiles or None in format [x_pre, x_post, y_pre, y_post, z_pre, z_post]
         """
         adjacent = []
         # get the coordinates of the current tile
@@ -173,7 +173,7 @@ class UnetTiling3D(Tiling):
                     new_i = self.coordinatesToIndex(*new_coords)
                     adjacent.append(new_i)
                 except AssertionError:
-                    pass
+                    adjacent.append(None)
         return adjacent
 
 #%%
