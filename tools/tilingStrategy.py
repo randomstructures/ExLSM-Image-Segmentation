@@ -59,12 +59,12 @@ class UnetTiling3D(Tiling):
         
         # Calculate the coordinate mesh of the tiling
         # Each list goes up to the last multiple of tile_shape smaller than image_shape => endpoint excluded
-        self.x = list(range(0,self.image_shape[0],self.output_shape[0]))
-        self.y = list(range(0,self.image_shape[1],self.output_shape[1]))
-        self.z = list(range(0,self.image_shape[2],self.output_shape[2]))
+        self.coords = []
+        for d in range(3):
+            self.coords.append(list(range(0,self.image_shape[d],self.output_shape[d])))
 
         # Expose the shape of the tiling
-        self.shape = (len(self.x),len(self.y),len(self.z))
+        self.shape = [len(d) for d in self.coords]
 
     def __len__(self):
         return np.prod(self.shape)
@@ -118,9 +118,9 @@ class UnetTiling3D(Tiling):
         """
         x,y,z = self.indexToCoordinates(i)
         # assemble the coordinates of the target chunk
-        x0 = self.x[x]
-        y0 = self.y[y]
-        z0 = self.z[z]
+        x0 = self.coords[0][x]
+        y0 = self.coords[1][y]
+        z0 = self.coords[2][z]
         x1 = x0 + self.output_shape[0]
         y1 = y0 + self.output_shape[1]
         z1 = z0 + self.output_shape[2]
@@ -181,7 +181,7 @@ class OverlappingUnetTiling3D(UnetTiling3D):
     """Derived from UnetTiling3D, instead of using adjacent output Tiles to cover the input image, each tile is shifted only by a given stepsize in each dimension.
     This allows for mutually overlapping tiles.
     """
-    def __init__(self, image_shape, output_shape=(132,132,132), input_shape=(220,220,220), delta=(8,8,8)):
+    def __init__(self, image_shape, output_shape=(132,132,132), input_shape=(220,220,220), delta=(8,8,8), containTiling=False):
         """
         Parameters
         ----------
@@ -193,6 +193,8 @@ class OverlappingUnetTiling3D(UnetTiling3D):
             shape of the image input of the unet
         delta : tuple
             spacing of the tiling grid as (dx,dy,dz)
+        containTiling: bool
+            wheter the ouput tile grid should be centered on the available data. This tries to prevent the input regions to extend past the image borders but also makes some border pixels inaccessible by the unet output.
         """
         super().__init__(image_shape, output_shape, input_shape)
         self.image_shape = image_shape
@@ -210,12 +212,29 @@ class OverlappingUnetTiling3D(UnetTiling3D):
 
         # Calculate the coordinate mesh of the tiling
         # Each list goes up to the last multiple of the step size smaller than image_shape 
-        self.x = list(range(0,self.image_shape[0],self.delta[0]))
-        self.y = list(range(0,self.image_shape[1],self.delta[1]))
-        self.z = list(range(0,self.image_shape[2],self.delta[2]))
+        self.coords = [] # list of coordinates, one entry for each axis
+        for d in range(3):
+            self.coords.append([]) # list of grid nodes along axis d
+            offset = (self.input_shape[d]-self.output_shape[d])//2 # offset by input region border
+            if containTiling:
+                i = offset
+            else:
+                i = 0 # start tiling with ouput region at image border
+
+            while True:
+                self.coords[d].append(i)
+                if containTiling:
+                    # add the next grid position until the input tile protrudes from the image for the first time
+                    if i+ self.output_shape[d] + offset >= self.image_shape[d]:
+                        break
+                else:
+                    # add the next grid position until the output tile protrudes from the image for the first time.
+                    if i+self.output_shape[d] > self.image_shape[d]:
+                        break
+                i += delta[d]
 
         # Expose the shape of the tiling
-        self.shape = (len(self.x),len(self.y),len(self.z))
+        self.shape = tuple([len(d) for d in self.coords])
 #%%
 class Canvas():
     """Base class that provides i/o operations to a large 3D array using axis aligned bounding boxes

@@ -15,6 +15,9 @@ class SelfAvoidingQueue():
         self.queue = [] # store all positions that should be visited in a queue
         self.visited = set() # store all visited positions in a set
 
+    def hasNext(self):
+        return len(self.queue)>0
+
     def putTile(self, i):
         """Add a tile index to the self avoiding queue. 
         This call is ignored of the tile has been visited before or is allready present in the queue.
@@ -50,19 +53,25 @@ class SelfAvoidingQueue():
         
 #%%
 class FloodFiller():
-    def __init__(self, image, mask, output_shape=(132,132,132), input_shape=(220,220,220), delta=(20,20,20)):
+    def __init__(self, image, segmentation, mask, output_shape=(132,132,132), input_shape=(220,220,220), delta=(20,20,20), containTiling=False):
         super().__init__()
         # Tile the image using overlapping unet tiles
-        self.tiling = tilingStrategy.OverlappingUnetTiling3D(image.shape, output_shape, input_shape, delta)
-        # maintain an image and mask canvas
+        self.tiling = tilingStrategy.OverlappingUnetTiling3D(image.shape, output_shape, input_shape, delta, containTiling)
+        # maintain an image, segmentation and (if available) mask canvas
         self.image = tilingStrategy.Canvas(image) # Use a canvas for i/o on the image
 
         # Allocate an array to assemble the mask in if not specified
-        if mask is None:
-            self.mask = tilingStrategy.Canvas(np.zeros_like(image)) # Allocate a tensor where the segmentation mask is stored
+        if segmentation is None:
+            self.segmentation = tilingStrategy.Canvas(np.zeros_like(image)) # Allocate a tensor where the segmentation mask is stored
         else:
-            assert self.image.shape == mask.shape, 'The mask and image array need to be of the same shape'
+            assert self.image.shape == segmentation.shape, 'The segmentation canvas and image array need to be of the same shape'
+            self.segmentation = tilingStrategy.Canvas(segmentation)
+
+        if not mask is None:
+            assert self.image.shape == mask.shape, 'The mask needs to have the same shape as the image'
             self.mask = tilingStrategy.Canvas(mask)
+        else:
+            self.mask = None
 
         # Expose the shape of the tiling
         self.shape = self.tiling.shape
@@ -74,9 +83,33 @@ class FloodFiller():
     def __len__(self):
         return np.prod(self.shape)
 
+    def hasNext(self):
+        return self.queue.hasNext()
+
     # Get the next tile from the queue
-    def next(self):
+    def getNextIndex(self):
         return self.queue.getTile()
+    
+    # Get the next annotated tile
+    def getNext(self) -> tuple or None:
+        """Returns a tuple containig the image, segmentation canvas and mask of the next tile in the queue.
+
+        Returns
+        -------
+        tuple or None
+            (image, segmentation, mask) image and segmentation are input regions, mask is output region only
+        """
+        if self.hasNext():
+            index = self.getNextIndex()
+            image = self.getSlice(index, source='image', region='input')
+            segmentation = self.getSlice(index, source='segmentation', region='input')
+            if self.mask is None:
+                mask = None
+            else:
+                mask = self.getSlice(index, source='mask', region='output')
+            return (image, segmentation, mask)
+        else:
+            return None
 
     def storePredictionUpdateQueue(self, index, tile):
         # Write the predicted mask tile to the canvas
@@ -128,32 +161,47 @@ class FloodFiller():
                 if steps[i]:
                     self.queue.putTile(index)
 
-    def getSlice(self, index, outputOnly=False):
-        """Get the i-th input tile of the image.
+    def getSlice(self, index: int, source='image', region='input'):
+        """Extract input or output slices from a source
 
         Parameters
         ----------
         index : int
-            the index of the image tile
-        outputOnly : bool
-            wheter the slice should be narrowed down to the output region only
+            the tile index
+        source : str, optional
+            identifier of the canvas that should be accessed, either 'image', 'segmentation' or 'mask'
+        region : str, optional
+            wheter the input or output region of the tile should be extracted, either 'input' or 'output'
 
         Returns
         -------
-        3d tensor
-            the i-th input tile of the image
+        arraylike
+            the specified slice
         """
-        if outputOnly:
+        if region is 'output':
             aabb = self.tiling.getOutputTile(index)
-        else:
+        elif region is 'input':
             # get the aabb of the unet input slice
             aabb = self.tiling.getInputTile(index)
-        # read out the aabb from the image data
-        data = self.image.cropAndPadAABB(aabb)
+        else:
+            raise ValueError('Unknown Region {}'.format(region))
+
+        if source is 'image':
+            # read out the aabb from the image data
+            data = self.image.cropAndPadAABB(aabb)
+        elif source is 'segmentation':
+            data = self.segmentation.cropAndPadAABB(aabb)
+        elif source is 'mask':
+            assert not mask is None, 'There is no mask to read from'
+            # read out the aabb from mask data
+            data = self.mask.cropAndPadAABB(aabb)
+        else:
+            raise ValueError('Unknown Source {}'.format(source))
+
         return data
 
     def writeSlice(self, index, tile):
-        """Writes the i-th tile of the mask to it's corresponding position in the mask tensor.
+        """Writes the i-th tile of the predicted mask to the segmentation canvas.
 
         Parameters
         ----------
@@ -165,8 +213,9 @@ class FloodFiller():
         assert tile.shape == self.tiling.output_shape, 'Slice needs to have the output shape of the unet'
         assert index>=0 and index < len(self), 'Index out of bounds'
         aabb = self.tiling.getOutputTile(index) # retrieve aabb that belongs to the slice index
-        self.mask.writeAABB(aabb, tile)
+        self.segmentation.writeAABB(aabb, tile)
 # %%
+"""
 # Tests
 ff = FloodFiller(np.zeros((100,100,100)), mask=None, output_shape=(10,10,10), input_shape=(20,20,20), delta=(5,5,5))
 
@@ -174,4 +223,11 @@ ff = FloodFiller(np.zeros((100,100,100)), mask=None, output_shape=(10,10,10), in
 # %%
 ff.queueHeuristic(0,np.ones((10,10,10)))
 ff.queueHeuristic(0,np.concatenate((np.zeros((5,10,10)),np.ones((5,10,10))))) # only x pre should be false
-# %%
+"""
+
+class ExampleFactory():
+    def __init__(self, ):
+        """This class prepares training examples on which a flood filling network can be trained.
+        Given a large 3D image together with it's annotation mask, this class preprares training examples in the form
+        """
+        super().__init__()
