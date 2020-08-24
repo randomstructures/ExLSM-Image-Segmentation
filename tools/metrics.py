@@ -45,7 +45,6 @@ def intersection_over_union(true_mask, predicted_mask, num_classes=2, smooth=1):
     
     return iou
 
-# TODO implement working mean iou in keras backend
 
 class MeanIoU(tf.keras.metrics.MeanIoU):
     def __init__(self, num_classes, name=None, dtype=None):

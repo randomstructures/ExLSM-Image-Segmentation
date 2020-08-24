@@ -69,7 +69,7 @@ class Unet(tf.keras.Model):
 
 #%% construct model via sequential API
 
-def build_unet(input_shape, n_blocks= 2, initial_filters= 32, **kwargs):
+def build_unet(input_shape, n_blocks= 2, initial_filters= 32, useSoftmax=False, **kwargs):
     # Create a placeholder for the data that will be fed to the model
     inputs = tf.keras.layers.Input(shape=input_shape)
     x = inputs
@@ -97,6 +97,10 @@ def build_unet(input_shape, n_blocks= 2, initial_filters= 32, **kwargs):
 
     filters = filters//2 # half the number of filters in first convolution operation
     x = OutputBlock(filters, n_classes=2)([x,skips.pop()])
+
+    if useSoftmax:
+        print('Model predicts softmax pseudoprobabilities')
+        x = tf.keras.layers.Softmax(axis=-1)(x)
     
     unet = tf.keras.Model(inputs=inputs, outputs=x)
     return unet
@@ -387,10 +391,10 @@ class OutputBlock(tf.keras.layers.Layer):
         return config
 
 
-def weighted_cce_dice_loss(num_classes: int, class_weights, dice_weight=1):
+def weighted_cce_dice_loss(class_weights, dice_weight=1, fromLogits=True):
     dice_weight = tf.keras.backend.variable(dice_weight)
-    cce = weighted_categorical_crossentropy(class_weights)
-    dice = soft_dice_loss(num_classes)
+    cce = weighted_categorical_crossentropy(class_weights, fromLogits)
+    dice = soft_dice_loss(fromLogits)
     
     def cce_dice(y_true, y_pred):
         return (1-dice_weight)*cce(y_true,y_pred) + dice_weight*dice(y_true,y_pred)
@@ -399,7 +403,7 @@ def weighted_cce_dice_loss(num_classes: int, class_weights, dice_weight=1):
 
 # %%
 
-def weighted_categorical_crossentropy(class_weights):
+def weighted_categorical_crossentropy(class_weights, fromLogits=True):
     # As seen on GitHub https://gist.github.com/wassname/ce364fddfc8a025bfab4348cf5de852d by wassname
     weights = tf.keras.backend.variable(class_weights, dtype=tf.float32)
     num_classes = len(class_weights)
@@ -414,7 +418,7 @@ def weighted_categorical_crossentropy(class_weights):
         voxel_weights = tf.reduce_sum(weights * K.cast(y_true, tf.float32), axis=-1) # reduce along last axis( (c,) * (b,x,y,z,c) ) -> (b,x,y,z)
 
         # compute a tensor with the unweighted cross entropy loss
-        unweighted_loss = tf.keras.losses.categorical_crossentropy(y_true,y_pred, from_logits=True) #(b,x,y,z)
+        unweighted_loss = tf.keras.losses.categorical_crossentropy(y_true,y_pred, from_logits=fromLogits) #(b,x,y,z)
         weighted_loss = unweighted_loss * voxel_weights # (b,x,y,z) * (b,x,y,z) broadcasts the second array such that each channel is multiplied by it's weight
 
         return tf.reduce_mean(weighted_loss, axis=[1,2,3]) #(b,)
@@ -422,7 +426,7 @@ def weighted_categorical_crossentropy(class_weights):
     return loss
 
 
-def soft_dice_loss(num_classes: int):
+def soft_dice_loss(fromLogits= True):
     """
     Soft dice loss is derived from the dice score. 
     It measures the overlap between the predicted and true mask regions for each channel.
@@ -442,14 +446,12 @@ def soft_dice_loss(num_classes: int):
     callable   
         the averaged soft dice loss
     """
-    def loss(y_true: tf.Tensor ,y_pred:tf.Tensor ):
-        # convert the segmentation mask to one hot encoding
-        # y_true = K.cast(y_true[...,0], dtype='int32')
-        # ohe_true = K.one_hot(y_true, num_classes)
+    def loss(y_true: tf.Tensor , y_pred:tf.Tensor ):
         ohe_true = K.cast(y_true, tf.float32)
-        # apply softmax to logits
-        softmax_pred = K.softmax(y_pred, axis=-1)
-        return soft_dice(ohe_true,softmax_pred)
+        if fromLogits:
+            # apply softmax to logits
+            y_pred = K.softmax(y_pred, axis=-1)
+        return soft_dice(ohe_true,y_pred)
 
     return loss
 
