@@ -82,12 +82,9 @@ class FloodFiller():
         # Write the predicted mask tile to the canvas
         self.writeSlice(index,tile)
         # Use an evaluation heuristic to determine which neighbours of the tile should be processed as well.
-        adjacent = self.tiling.getAdjacentTiles(index)
-        # TODO implement heuristic
-        # Enqueue the neighbouring tiles
-        self.queue.putTiles(adjacent)
+        self.queueHeuristic(self, index, tile)
 
-    def queueHeuristic(self, index, tile):
+    def queueHeuristic(self, index, tile, threshold = 0.9):
         """
         To search for new positions where the FCCN should be evaluated the Flood Filling Paper states:
             "potential new positions are searched by examining the current state
@@ -99,7 +96,7 @@ class FloodFiller():
         """
         aabb = self.tiling.getOutputTile(index)
         cp = [(aabb[d] + aabb[d+3])//2 for d in range(3)] # calculate the center point of the boundary box
-        # construct the domain of the evaluation cube
+        # construct the domain of the evaluation cube (d_pre, d_post) for x,y,z
         x = (cp[0]-self.tiling.delta[0],cp[0]+self.tiling.delta[0],)
         y = (cp[1]-self.tiling.delta[1],cp[1]+self.tiling.delta[1],)
         z = (cp[2]-self.tiling.delta[2],cp[2]+self.tiling.delta[2],)
@@ -118,7 +115,18 @@ class FloodFiller():
 
         # TODO get mean of mask at planes, threshold and assemble tiles that should be explored
 
-        return planes
+        # Calculate mean max object probability for each plane
+        maxima = [ np.max(tile[plane]) for plane in planes]
+        # Threshold means to get logical array of positions that should be enqueued
+        steps = [ max > threshold for max in maxima]
+        # get adjacent tile indices in (pre,post) format for x,y,z
+        neighbours = self.tiling.getAdjacentTiles(index)
+
+        # Add all neigbouring tiles if they exist and exceed the threshold
+        for i, index in enumerate(neighbours):
+            if not index is None:
+                if steps[i]:
+                    self.queue.putTile(index)
 
     def getSlice(self, index, outputOnly=False):
         """Get the i-th input tile of the image.
@@ -163,4 +171,7 @@ class FloodFiller():
 ff = FloodFiller(np.zeros((100,100,100)), mask=None, output_shape=(10,10,10), input_shape=(20,20,20), delta=(5,5,5))
 
 
+# %%
+ff.queueHeuristic(0,np.ones((10,10,10)))
+ff.queueHeuristic(0,np.concatenate((np.zeros((5,10,10)),np.ones((5,10,10))))) # only x pre should be false
 # %%
