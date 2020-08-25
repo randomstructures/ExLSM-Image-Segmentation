@@ -4,9 +4,12 @@ Linus Meienberg
 August 2020
 """
 #%%
-import sys
+import tensorflow as tf
+
+import sys, random
 sys.path.append('../tools')
-import tilingStrategy
+import tilingStrategy, Dataset3D
+
 import numpy as np
 #%%
 class SelfAvoidingQueue():
@@ -161,6 +164,30 @@ class FloodFiller():
                 if steps[i]:
                     self.queue.putTile(index)
 
+    def seedSlice(self, index:int):
+        """Use the ground truth mask to seed a single pixel in a specified tile of the segmentation canvas.
+
+        Parameters
+        ----------
+        index : int
+            the index of the tile that should be seeded
+        """
+        assert not self.mask is None, 'Cannot seed without ground truth data'
+        mask_tile = self.getSlice(index, source='mask', region='output')
+
+        assert np.any(mask_tile), 'The specified tile does not contain the object - cannot seed here'
+        segmentation_seed = np.zeros_like(mask_tile) # Allocate segmentation slice
+
+        while True:
+            # draw random coordinates in the mask_tile
+            coords = np.s_[tuple([random.randrange(0,axis) for axis in mask_tile.shape])]
+            if mask_tile[coords] > 0: # test if the object is present there
+                segmentation_seed[coords] = 0.95 # seed segmentation canvas and break loop
+                break
+
+        self.writeSlice(index, segmentation_seed) # write the segmentation seed to the canvas
+
+
     def getSlice(self, index: int, source='image', region='input'):
         """Extract input or output slices from a source
 
@@ -192,7 +219,7 @@ class FloodFiller():
         elif source is 'segmentation':
             data = self.segmentation.cropAndPadAABB(aabb)
         elif source is 'mask':
-            assert not mask is None, 'There is no mask to read from'
+            assert not self.mask is None, 'There is no mask to read from'
             # read out the aabb from mask data
             data = self.mask.cropAndPadAABB(aabb)
         else:
@@ -215,19 +242,50 @@ class FloodFiller():
         aabb = self.tiling.getOutputTile(index) # retrieve aabb that belongs to the slice index
         self.segmentation.writeAABB(aabb, tile)
 # %%
-"""
+
 # Tests
-ff = FloodFiller(np.zeros((100,100,100)), mask=None, output_shape=(10,10,10), input_shape=(20,20,20), delta=(5,5,5))
+ff = FloodFiller(np.zeros((100,100,100)),segmentation=None, mask=None, output_shape=(10,10,10), input_shape=(20,20,20), delta=(5,5,5))
 
 
 # %%
+"""
 ff.queueHeuristic(0,np.ones((10,10,10)))
 ff.queueHeuristic(0,np.concatenate((np.zeros((5,10,10)),np.ones((5,10,10))))) # only x pre should be false
 """
 
-class ExampleFactory():
-    def __init__(self, ):
-        """This class prepares training examples on which a flood filling network can be trained.
-        Given a large 3D image together with it's annotation mask, this class preprares training examples in the form
-        """
-        super().__init__()
+def constructExample(image: tf.Tensor, mask: tf.Tensor, output_shape, input_shape, delta) -> FloodFiller:
+    """Constructs a training scene, given a image mask pair.
+
+    Parameters
+    ----------
+    image : tf.tensor
+    mask : tf.tensor
+
+    Returns
+    -------
+    FloodFiller
+        A flood filler instance defining a centered tiling on the image volume. The central tile is enqued for evaluation and a single seed pixel is set in the segmentation canvas.
+    """
+    ff = FloodFiller(image=image,
+                     segmentation= None, # Allocate a new segmentation canvas
+                     mask= mask,
+                     output_shape=output_shape,
+                     input_shape=input_shape,
+                     delta=delta,
+                     containTiling=True)
+    
+    # Verify that the scene alows the unet to move at least one step in each direction
+    assert np.all([axis > 2 for axis in ff.shape]), 'A training scene should allow at least one step in each direction'
+
+    # Locate the central tile
+    center_index = len(ff)//2 # for a 3x3x3 tiling with len=27 -> 27//2 = 13 is the central tile
+    # seed slice
+    ff.seedSlice(center_index)
+    # enque 
+    ff.queue.putTile(center_index)
+
+    return ff
+
+# %%
+ff = constructExample(np.zeros((100,100,100)), np.ones((100,100,100)), output_shape=(10,10,10), input_shape=(20,20,20), delta=(5,5,5))
+# %%

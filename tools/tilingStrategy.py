@@ -283,7 +283,7 @@ class Canvas():
         tile : 3d tensor
             a rectangular array of data
         """
-        aabb_volume = tuple([aabb[i+3]-aabb[i] for i in range(2)]) # calculate the volume specified by the aabb
+        aabb_volume = tuple([aabb[i+3]-aabb[i] for i in range(3)]) # calculate the volume specified by the aabb
         assert tile.shape == aabb_volume, 'Slice needs to have the same volume as the aabb'
 
         # clip the target aabb if it protrudes from the canvas volume to get the target coordinates
