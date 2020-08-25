@@ -136,12 +136,14 @@ def applyAffineTransformation(image, transformation_matrix, interpolation_order 
     center_shift = center-center_mapping # Calculate the shift of the center point => Add this to make the center points of the input and output region congruent
     # apply affine transform to each channel of the image
     out = np.zeros_like(image)
-
-    for channel in range(image.shape[-1]):
-         out[...,channel] = ndimage.affine_transform(image[...,channel],
-         inverse, offset=center_shift,
-         mode='reflect',
-         order=interpolation_order)
+    if len(image.shape)==4: #(x,y,z,c) format
+        for channel in range(image.shape[-1]):
+            out[...,channel] = ndimage.affine_transform(image[...,channel],
+            inverse, offset=center_shift,
+            mode='reflect',
+            order=interpolation_order)
+    elif len(image.shape)==3: #(x,y,z) format
+        out = ndimage.affine_transform(image, inverse, offset=center_shift, mode='reflect', order=interpolation_order)
     
     return out
 

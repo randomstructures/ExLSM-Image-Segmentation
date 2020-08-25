@@ -397,8 +397,11 @@ def applyDisplacementField3D(image, dx, dy, dz, interpolation_order = 1):
 
     # Use the x,y,z mapping relation to map all channels
     output = np.zeros_like(image)
-    # after interpolating all values in single file reshape to input dimensions
-    for c in range(shape[-1]):
-        output[...,c] =scipy.ndimage.map_coordinates(image[...,c], input_coordinates, order=interpolation_order, mode='reflect').reshape(shape[:-1])
+    if len(image.shape)==4: #(x,y,z,c) format
+        # after interpolating all values in single file reshape to input dimensions
+        for c in range(shape[-1]):
+            output[...,c] =scipy.ndimage.map_coordinates(image[...,c], input_coordinates, order=interpolation_order, mode='reflect').reshape(shape[:-1])
+    elif len(image.shape)==3: # (x,y,z) format
+        output = scipy.ndimage.map_coordinates(image, input_coordinates, order=interpolation_order, mode='reflect' ).reshape(image.shape)
     
     return output
