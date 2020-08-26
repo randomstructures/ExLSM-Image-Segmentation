@@ -210,7 +210,7 @@ def makeRGBComposite(r,g,b,gain=(1,1,1)):
     composite *= gain
     return composite
     
-def showProjections(volumes: list, axis = -1, channel=None, mode='max', title=None, **kwargs):
+def showProjections(volumes: list, axis = -1, channel=None, mode='max', title=None, size=4, **kwargs):
     """Plot a projected view of a list of 3d volumes
 
     Parameters
@@ -227,7 +227,7 @@ def showProjections(volumes: list, axis = -1, channel=None, mode='max', title=No
         The plot title, by default None
     """
     # Set up a figure with a plot for each volume in the list
-    fig, axs = plt.subplots(1, len(volumes), figsize=(2+4*len(volumes),4))
+    fig, axs = plt.subplots(1, len(volumes), figsize=(2+size*len(volumes),size))
     fig.suptitle(title)
 
     for i, ax in enumerate(axs):

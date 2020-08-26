@@ -115,7 +115,7 @@ def applyAffineTransformation(image, transformation_matrix, interpolation_order 
     Parameters
     ----------
     image : tensor
-        3D image tensor with shape (x,y,z,c) where c are the channels
+        3D image tensor with shape (x,y,z,c) where c are the channels or (x,y,z)
     transformation_matrix : matrix
         Matrix with shape (3,3) describing a three dimensional affine transformation.
     interpolation_order : int
@@ -127,11 +127,12 @@ def applyAffineTransformation(image, transformation_matrix, interpolation_order 
     tensor
         3D image tensor of the same shape as the input image.
     """
+    assert len(image.shape)==3 or len(image.shape)==4, 'image must be (x,y,z,c) or (x,y,z)'
     # get inverse transformation. 
     inverse = np.linalg.inv(transformation_matrix)
 
     # shift the center of the coordinate system to the middle of the volume
-    center = [dim//2 for dim in image.shape[:-1]] # calculate the image center exclude last dim (channel)
+    center = [dim//2 for dim in image.shape[:3]] # calculate the image center exclude last dim (channel) if present (X,Y,Z,c) or (x,y,z)
     center_mapping = np.dot(inverse, center) # Calculate where the center of the input region is mapped to 
     center_shift = center-center_mapping # Calculate the shift of the center point => Add this to make the center points of the input and output region congruent
     # apply affine transform to each channel of the image

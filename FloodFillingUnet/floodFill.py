@@ -100,7 +100,7 @@ class FloodFiller():
         Returns
         -------
         tuple or None
-            (image, segmentation, mask) image and segmentation are input regions, mask is output region only
+            (index, image, segmentation, mask) image and segmentation are input regions, mask is output region only
         """
         if self.hasNext():
             index = self.getNextIndex()
@@ -110,7 +110,7 @@ class FloodFiller():
                 mask = None
             else:
                 mask = self.getSlice(index, source='mask', region='output')
-            return (image, segmentation, mask)
+            return (index, image, segmentation, mask)
         else:
             return None
 
@@ -120,7 +120,7 @@ class FloodFiller():
         # Use an evaluation heuristic to determine which neighbours of the tile should be processed as well.
         self.queueHeuristic(self, index, tile)
 
-    def queueHeuristic(self, index, tile, threshold = 0.9):
+    def queueHeuristic(self, index, tile: tf.Tensor, threshold = 0.9):
         """
         To search for new positions where the FCCN should be evaluated the Flood Filling Paper states:
             "potential new positions are searched by examining the current state
@@ -130,29 +130,28 @@ class FloodFiller():
             that voxel is added to a list of new positions for the FFN."
         
         """
-        aabb = self.tiling.getOutputTile(index)
-        cp = [(aabb[d] + aabb[d+3])//2 for d in range(3)] # calculate the center point of the boundary box
+        cp = [d//2 for d in tile.shape] # calculate the (relative) center point of the tile
         # construct the domain of the evaluation cube (d_pre, d_post) for x,y,z
         x = (cp[0]-self.tiling.delta[0],cp[0]+self.tiling.delta[0],)
         y = (cp[1]-self.tiling.delta[1],cp[1]+self.tiling.delta[1],)
         z = (cp[2]-self.tiling.delta[2],cp[2]+self.tiling.delta[2],)
+        #print(cp)
+        #print((x,y,z))
 
         # construct the slice arguments to obtain the evaluation plains
         planes = [
-            np.s_[x[0],y[0]:y[1],z[0]:z[1]],
-            np.s_[x[1]-1,y[0]:y[1],z[0]:z[1]],
+            tile[x[0],y[0]:y[1],z[0]:z[1]],
+            tile[x[1]-1,y[0]:y[1],z[0]:z[1]],
 
-            np.s_[x[0]:x[1],y[0],z[0]:z[1]],
-            np.s_[x[0]:x[1],y[1]-1,z[0]:z[1]],
+            tile[x[0]:x[1],y[0],z[0]:z[1]],
+            tile[x[0]:x[1],y[1]-1,z[0]:z[1]],
 
-            np.s_[x[0]:x[1],y[0]:y[1],z[0]],
-            np.s_[x[0]:x[1],y[0]:y[1],z[1]-1],
+            tile[x[0]:x[1],y[0]:y[1],z[0]],
+            tile[x[0]:x[1],y[0]:y[1],z[1]-1],
         ]
 
-        # TODO get mean of mask at planes, threshold and assemble tiles that should be explored
-
         # Calculate mean max object probability for each plane
-        maxima = [ np.max(tile[plane]) for plane in planes]
+        maxima = [ np.max(plane) for plane in planes]
         # Threshold means to get logical array of positions that should be enqueued
         steps = [ max > threshold for max in maxima]
         # get adjacent tile indices in (pre,post) format for x,y,z
@@ -244,7 +243,7 @@ class FloodFiller():
 # %%
 
 # Tests
-ff = FloodFiller(np.zeros((100,100,100)),segmentation=None, mask=None, output_shape=(10,10,10), input_shape=(20,20,20), delta=(5,5,5))
+#ff = FloodFiller(np.zeros((100,100,100)),segmentation=None, mask=None, output_shape=(10,10,10), input_shape=(20,20,20), delta=(5,5,5))
 
 
 # %%
@@ -279,13 +278,19 @@ def constructExample(image: tf.Tensor, mask: tf.Tensor, output_shape, input_shap
 
     # Locate the central tile
     center_index = len(ff)//2 # for a 3x3x3 tiling with len=27 -> 27//2 = 13 is the central tile
-    # seed slice
-    ff.seedSlice(center_index)
-    # enque 
-    ff.queue.putTile(center_index)
+    try:
+        # seed a slice
+        ff.seedSlice(center_index)
+        # enque 
+        ff.queue.putTile(center_index)
+    except AssertionError as ae:
+        # affine transformations and elastic deformations can lead to situations where there is no more object left in the central tile
+        # do not crash here, but also leave the queue of the flood filler empty
+        print('failed to construct scene, no object to seed central tile')
+   
 
     return ff
 
 # %%
-ff = constructExample(np.zeros((100,100,100)), np.ones((100,100,100)), output_shape=(10,10,10), input_shape=(20,20,20), delta=(5,5,5))
+#ff = constructExample(np.zeros((100,100,100)), np.ones((100,100,100)), output_shape=(10,10,10), input_shape=(20,20,20), delta=(5,5,5))
 # %%
