@@ -132,9 +132,12 @@ class FloodFiller():
         """
         cp = [d//2 for d in tile.shape] # calculate the (relative) center point of the tile
         # construct the domain of the evaluation cube (d_pre, d_post) for x,y,z
-        x = (cp[0]-self.tiling.delta[0],cp[0]+self.tiling.delta[0],)
-        y = (cp[1]-self.tiling.delta[1],cp[1]+self.tiling.delta[1],)
-        z = (cp[2]-self.tiling.delta[2],cp[2]+self.tiling.delta[2],)
+        #x = (cp[0]-self.tiling.delta[0],cp[0]+self.tiling.delta[0],)
+        #y = (cp[1]-self.tiling.delta[1],cp[1]+self.tiling.delta[1],)
+        #z = (cp[2]-self.tiling.delta[2],cp[2]+self.tiling.delta[2],)
+        x = (0, tile.shape[0])
+        y = (0, tile.shape[1])
+        z = (0, tile.shape[2])
         #print(cp)
         #print((x,y,z))
 
@@ -152,6 +155,7 @@ class FloodFiller():
 
         # Calculate mean max object probability for each plane
         maxima = [ np.max(plane) for plane in planes]
+        #print(maxima)
         # Threshold means to get logical array of positions that should be enqueued
         steps = [ max > threshold for max in maxima]
         # get adjacent tile indices in (pre,post) format for x,y,z
@@ -162,6 +166,7 @@ class FloodFiller():
             if not index is None:
                 if steps[i]:
                     self.queue.putTile(index)
+        #print('queue is {}'.format(self.queue.queue))
 
     def seedSlice(self, index:int):
         """Use the ground truth mask to seed a single pixel in a specified tile of the segmentation canvas.
