@@ -55,6 +55,7 @@ class MeanIoU(tf.keras.metrics.MeanIoU):
         y_pred = K.cast(K.argmax(y_pred,axis=-1), tf.int32)
         return super().update_state(y_true,y_pred,sample_weight)
 
+
 def keras_IoU(num_classes = 2, smooth=1):
     """Return a callable / metric that returns the mean IoU for a semantic segmentation task.
 
@@ -95,4 +96,11 @@ def keras_IoU(num_classes = 2, smooth=1):
         return iou /num_classes
 
     return IoU
-# %%
+# %% Tools to evaluate binary prediction, ground truth pairs
+from sklearn.metrics import precision_recall_curve, roc_auc_score
+
+def precisionRecall(y_true: np.ndarray, y_pred: np.ndarray) -> tuple:
+    # We expect y_true to be a binary ground truth tensor (b,x,y,z) holding entries 0/1
+    # y_pred is a probability map for the object channel (p(pixel==1)) in format (b,x,y,z)
+    precision, recall, thresholds = sklearn.model_selection.precision_recall_curve(y_true.flat, y_pred.flat, pos_label = 1)
+    return precision, recall, thresholds
