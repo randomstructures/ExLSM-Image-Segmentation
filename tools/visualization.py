@@ -99,7 +99,7 @@ def showCutplanes(image_tensor, channel=0, hint = True, newFigure = True, **kwar
     return mlab.gcf()
 
 
-def showLogitDistribution(prediction):
+def showLogitDistribution(prediction, savePath=None):
     """Shows the distribution of the predicted logit values for each channel in a segmentation mask.
 
     Parameters
@@ -122,9 +122,11 @@ def showLogitDistribution(prediction):
     plt.xlabel('Predicted logit class probabilities')
     plt.ylabel('count')
     plt.legend()
-    plt.show()
+    #plt.show()
+    if not savePath is None:
+        plt.savefig(savePath)
 
-def showZSlices(volume, channel=0, n_slices = 4, title=None, mode='gray', plot_size=4, vmin=None, vmax=None):
+def showZSlices(volume, channel=0, n_slices = 4, title=None, mode='gray', plot_size=4, vmin=None, vmax=None, savePath=None):
     """Shows a series of slices through a 3d volume at different z levels.
 
     Parameters
@@ -178,7 +180,9 @@ def showZSlices(volume, channel=0, n_slices = 4, title=None, mode='gray', plot_s
         else:
             raise ValueError('Mode not implemented')
 
-    plt.show()
+    #plt.show()
+    if not savePath is None:
+        plt.savefig(savePath)
 
 def makeRGBComposite(r,g,b,gain=(1,1,1)):
     """combine three tensors of shape (...,1) to a three channel composite of shape (...,3) where each channel is multiplied by the corresponding gain
@@ -210,7 +214,7 @@ def makeRGBComposite(r,g,b,gain=(1,1,1)):
     composite *= gain
     return composite
     
-def showProjections(volumes: list, axis = -1, channel=None, mode='max', title=None, size=4, **kwargs):
+def showProjections(volumes: list, axis = -1, channel=None, mode='max', title=None, size=4, savePath=None, **kwargs):
     """Plot a projected view of a list of 3d volumes
 
     Parameters
@@ -244,7 +248,9 @@ def showProjections(volumes: list, axis = -1, channel=None, mode='max', title=No
                 
         ax.imshow(projected, **kwargs)
     
-    plt.show()
+    #plt.show()
+    if not savePath is None:
+        plt.savefig(savePath)
 
 
 # %%

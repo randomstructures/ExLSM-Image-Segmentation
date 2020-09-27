@@ -5,20 +5,23 @@
 #TODO add custom modules to path
 module_path = '..\\'
 training_dataset_path = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\gapFilled_0923.h5'
-save_dir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\Test\\'
-model_file_name = 'test.h5'
-log_file_name = 'test.log'
+save_dir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20200927_maskComparison\\'
+model_file_name = 'gapFilled'
 
 #%% Architecture Parameters
+#bottleneck_dropout_rate = 0.3
+initial_filters = 4 # the number of filter maps in the first convolution operation
+
+# ATTENTION these parameters are not freely changable -> CNN arithmetics
+n_blocks = 2 # the number of Unet downsample/upsample blocks
 
 #%% Training Parameters
 test_fraction = 0.2 # fraction of training examples that are set aside in the validation set
 affineTransform = True 
 elasticDeformation = False
-n_epochs = 1 # number of epochs to train the model
+n_epochs = 15 # number of epochs to train the model
 object_class_weight = 5 # factor by which pixels showing the neuron are multiplied in the loss function
 dice_weight = 0.3 # contribution of dice loss (rest is cce)
-initial_filters = 4 # the number of filter maps in the first convolution operation
 batch_size = 1
 
 #%% Setup
@@ -100,7 +103,7 @@ trainingset = trainingset.batch(batch_size).map(crop_mask).prefetch(1)
 testset = testset_raw.map(preprocess).batch(batch_size).map(crop_mask).prefetch(1)
 
 #%% Construct model
-unet = model.build_unet(input_shape=(220,220,220,1), n_blocks=2, initial_filters=initial_filters)
+unet = model.build_unet(input_shape=(220,220,220,1), n_blocks=n_blocks, initial_filters=initial_filters)
 #%% Setup Training
 unet.compile(
     optimizer = tf.keras.optimizers.Adam(),
@@ -111,13 +114,13 @@ unet.compile(
 #%% Train
 history = unet.fit(trainingset, epochs=n_epochs,
                    validation_data= testset,
-                   verbose=1,
-                   callbacks=[tf.keras.callbacks.ModelCheckpoint(save_dir+model_file_name, # Name of checkpoint file
+                   verbose=2,
+                   callbacks=[tf.keras.callbacks.ModelCheckpoint(save_dir+model_file_name+'{epoch:0.2d}.h5', # Name of checkpoint file
                                                                  #save_best_only=True, # Wheter to save each epoch or only the best model according to a metric
                                                                  #monitor='val_meanIoU', # Which quantity should be used for model selection
                                                                  #mode='max' # We want this metric to be as large as possible
                                                                  ),
-                              tf.keras.callbacks.CSVLogger(filename=save_dir+log_file_name)
+                              tf.keras.callbacks.CSVLogger(filename=save_dir+log_file_name+'.log')
                              ],
                    )
 
@@ -135,6 +138,7 @@ plt.ylabel('Spare Categorial Crossentropy')
 plt.savefig(save_dir +'loss.png')
 
 #Plot the evolution of pixel wise prediction accuracy
+plt.figure()
 plt.plot(history.history['acc'])
 plt.plot(history.history['val_acc'])
 plt.title('Evolution of Accuracy')
@@ -144,6 +148,7 @@ plt.legend(['training', 'validation'])
 plt.savefig(save_dir+'accuracy.png')
 
 #Plot evolution of mean IoU Metric
+plt.figure()
 plt.plot(history.history['meanIoU'])
 plt.plot(history.history['val_meanIoU'])
 plt.title('Evolution of Mean IoU')
