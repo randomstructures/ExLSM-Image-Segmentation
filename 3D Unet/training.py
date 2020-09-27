@@ -3,6 +3,7 @@
 
 #%% Input Ouput loctions
 #TODO add custom modules to path
+module_path = '..\\'
 training_dataset_path = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\gapFilled_0923.h5'
 save_dir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\Test\\'
 model_file_name = 'test.h5'
@@ -18,33 +19,29 @@ n_epochs = 1 # number of epochs to train the model
 object_class_weight = 5 # factor by which pixels showing the neuron are multiplied in the loss function
 dice_weight = 0.3 # contribution of dice loss (rest is cce)
 initial_filters = 4 # the number of filter maps in the first convolution operation
-
+batch_size = 1
 
 #%% Setup
 
-import itertools
 import os
 import sys
-import time
-from importlib import reload
 
-import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
-from tqdm import tqdm
 
-sys.path.append('../tools')
-import Dataset3D
-import tilingStrategy
-import visualization
+print(os.getcwd())
 
-sys.path.append('..')
+sys.path.append(module_path)
+
+sys.path.append(module_path+'tools\\')
 import metrics
 import model
 import utilities
+import Dataset3D
 
-#Perform dark GPU MAGIK
+
+# Perform dark GPU MAGIK
 # Fix for tensorflow-gpu issues that I found online... (don't ask me what it does)
 gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
@@ -99,8 +96,8 @@ if affineTransform:
 if elasticDeformation:
     trainingset = trainingset.map(utilities.tf_elastic)
 
-trainingset = trainingset.batch(1).map(crop_mask).prefetch(1)
-testset = testset_raw.map(preprocess).batch(1).map(crop_mask).prefetch(1)
+trainingset = trainingset.batch(batch_size).map(crop_mask).prefetch(1)
+testset = testset_raw.map(preprocess).batch(batch_size).map(crop_mask).prefetch(1)
 
 #%% Construct model
 unet = model.build_unet(input_shape=(220,220,220,1), n_blocks=2, initial_filters=initial_filters)
@@ -114,7 +111,7 @@ unet.compile(
 #%% Train
 history = unet.fit(trainingset, epochs=n_epochs,
                    validation_data= testset,
-                   verbose=2,
+                   verbose=1,
                    callbacks=[tf.keras.callbacks.ModelCheckpoint(save_dir+model_file_name, # Name of checkpoint file
                                                                  #save_best_only=True, # Wheter to save each epoch or only the best model according to a metric
                                                                  #monitor='val_meanIoU', # Which quantity should be used for model selection
@@ -125,5 +122,35 @@ history = unet.fit(trainingset, epochs=n_epochs,
                    )
 
 #%% Evaluate
+
+## Generate some Plots from training history 
+# Plot the evolution of the training loss
+plt.figure()
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.legend(['training','validation'])
+plt.title('Evolution of training loss')
+plt.xlabel('epochs')
+plt.ylabel('Spare Categorial Crossentropy')
+plt.savefig(save_dir +'loss.png')
+
+#Plot the evolution of pixel wise prediction accuracy
+plt.plot(history.history['acc'])
+plt.plot(history.history['val_acc'])
+plt.title('Evolution of Accuracy')
+plt.xlabel('epoch')
+plt.ylabel('categorial accuracy')
+plt.legend(['training', 'validation'])
+plt.savefig(save_dir+'accuracy.png')
+
+#Plot evolution of mean IoU Metric
+plt.plot(history.history['meanIoU'])
+plt.plot(history.history['val_meanIoU'])
+plt.title('Evolution of Mean IoU')
+plt.xlabel('epoch')
+plt.ylabel('mean intersection over union')
+plt.legend(['training', 'validation'])
+plt.savefig(save_dir+'iou.png')
+
 
 #%% Tidy up
