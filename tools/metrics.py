@@ -102,5 +102,7 @@ from sklearn.metrics import precision_recall_curve, roc_auc_score
 def precisionRecall(y_true: np.ndarray, y_pred: np.ndarray) -> tuple:
     # We expect y_true to be a binary ground truth tensor (b,x,y,z) holding entries 0/1
     # y_pred is a probability map for the object channel (p(pixel==1)) in format (b,x,y,z)
-    precision, recall, thresholds = sklearn.model_selection.precision_recall_curve(y_true.flat, y_pred.flat, pos_label = 1)
-    return precision, recall, thresholds
+    precision, recall, thresholds = precision_recall_curve(y_true.flat, y_pred.flat, pos_label = 1)
+    auc = roc_auc_score(y_true.flat,y_pred.flat)
+    return precision, recall, thresholds, auc
+# %%
