@@ -115,7 +115,7 @@ unet.compile(
 history = unet.fit(trainingset, epochs=n_epochs,
                    validation_data= testset,
                    verbose=2,
-                   callbacks=[tf.keras.callbacks.ModelCheckpoint(save_dir+model_file_name+'{epoch:0.2d}.h5', # Name of checkpoint file
+                   callbacks=[tf.keras.callbacks.ModelCheckpoint(save_dir+model_file_name+'{epoch}.h5', # Name of checkpoint file
                                                                  #save_best_only=True, # Wheter to save each epoch or only the best model according to a metric
                                                                  #monitor='val_meanIoU', # Which quantity should be used for model selection
                                                                  #mode='max' # We want this metric to be as large as possible
