@@ -309,7 +309,7 @@ class Dataset():
         
         return keys 
 
-    def getGenerator(self, keys):
+    def getGenerator(self, keys, shuffle=True):
         """Returns a generator function that iterates over the specified keys.
         The generator yield a tuple consisting of the image input and the mask output for each.
 
@@ -317,7 +317,8 @@ class Dataset():
         ----------
         keys : list
             list of keys that identify the dataset records over which the generator should iterate
-
+        shuffle : bool
+            wheter to shuffle the keys each time a generator over the keys is returned
         Returns
         -------
         generator
@@ -330,9 +331,11 @@ class Dataset():
         """
         # return a callabe that constructs a generator that iterates over the specified keys
         assert set(keys).issubset(self.keys()), 'Keys contain unknown entries'
-        random.shuffle(keys) # iterate in random order
+        
 
         def getGen():
+            if shuffle:
+                random.shuffle(keys) # iterate in random order
             for key in keys:
                 image, mask, _ = self.get(key)
                 yield (image, mask)
