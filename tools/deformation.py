@@ -3,11 +3,8 @@
 
 #%% Imports 
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 
-# OpenCV for python
-import cv2
 # Scipy interpolation and image manipulation 
 import scipy.interpolate
 import scipy.ndimage
