@@ -48,6 +48,7 @@ import Dataset3D
 
 # Perform dark GPU MAGIK
 
+"""
 # TODO maybe this fix does not apply for gpu cluster ? -> try out
 # Fix for tensorflow-gpu issues that I found online... (don't ask me what it does)
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -61,6 +62,11 @@ if gpus:
   except RuntimeError as e:
     # Memory growth must be set before GPUs have been initialized
     print(e)
+"""
+
+# List the available devices
+physical_devices = tf.config.list_physical_devices('GPU')
+print("Num GPUs:", len(physical_devices))
 
 # Define a mirrored training strategy (maintain synchronized model instances and train on different batches)
 mirrored_strategy = tf.distribute.MirroredStrategy()
@@ -165,6 +171,5 @@ plt.xlabel('epoch')
 plt.ylabel('mean intersection over union')
 plt.legend(['training', 'validation'])
 plt.savefig(save_dir+'iou.png')
-
 
 #%% Tidy up
