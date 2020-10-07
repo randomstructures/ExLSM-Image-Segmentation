@@ -16,7 +16,6 @@ Implementation details inspired by the model code a the NVIDIA Deep Learning Exa
 import tensorflow as tf 
 import tensorflow.keras.backend as K
 import numpy as np
-import kerastuner
 
 #%% CONSTRUCTION OF UNET by subclassing model
 
@@ -104,53 +103,6 @@ def build_unet(input_shape, n_blocks= 2, initial_filters= 32, useSoftmax=False, 
     
     unet = tf.keras.Model(inputs=inputs, outputs=x)
     return unet
-
-#%% Build a unet from a keras-tuner hyperparameter dictionary
-def build_unet_with_hp(input_shape, hp: kerastuner.HyperParameters, n_blocks=2):
-    # Create a placeholder for the data that will be fed to the model
-    inputs = tf.keras.layers.Input(shape=input_shape)
-    x = inputs
-    skips = []
-
-    # instantiate unet blocks
-    # Choose the number of initial filters
-    filters = hp.Int('initial_filters', 2, 16, default=4)
-
-    # Thread through input block
-    x, residual = InputBlock(initial_filters=filters)(x)
-    skips.append(residual)
-    filters *= 2 # filters are doubled in second conv operation
-    
-    for index in range(n_blocks):
-        x, residual = DownsampleBlock(filters=filters, index=index+1)(x)
-        skips.append(residual)
-        filters *= 2  # filters are doubled in second conv operation
-
-    x = BottleneckBlock(filters, dropout_rate=hp.Float('bottleneck_dropout',0,0.5,step=0.1, default=0.2))(x)
-    filters *= 2  # filters are doubled in second conv operation
-
-    for index in range(n_blocks)[::-1]:
-        filters = filters//2  # half the number of filters in first convolution operation
-        x = UpsampleBlock(filters, index+1)([x, skips.pop()])
-
-    filters = filters//2 # half the number of filters in first convolution operation
-    x = OutputBlock(filters, n_classes=2)([x,skips.pop()])
-    
-    unet = tf.keras.Model(inputs=inputs, outputs=x)
-
-    # Compile the model
-    unet.compile(
-        optimizer = tf.keras.optimizers.Adam(
-            lr=hp.Float('learning_rate', 1e-4, 1e-2, sampling='log')),
-            loss = weighted_cce_dice_loss(
-                num_classes=2,
-                class_weights= [1, hp.Int('foreground_weight',1,60,step=5, default=20)],
-                dice_weight=hp.Float('dice_weight',0,1,step=0.1)),
-            metrics = ['accuracy',tf.keras.metrics.MeanIoU(num_classes=2, name='IoU')]
-        )
-
-    return unet
-
 
 #%%IMPLEMENTATION OF UNET BLOCKS
 
