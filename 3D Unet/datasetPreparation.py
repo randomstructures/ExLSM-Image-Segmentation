@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from importlib import reload
 from scipy.stats import linregress
 
-import h5py, z5py
+import h5py
 sys.path.append(module_path)
 import tilingStrategy, Dataset3D, visualization
 
