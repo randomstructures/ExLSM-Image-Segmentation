@@ -61,7 +61,7 @@ def preprocessImage(data):
         preprocessed image data.
     """
     # clip the values at 1400 so that everything above is saturated, convert to float to prevent issues with unsigned int format
-    data = np.clip(data, 0, 1400).astype(np.float32)
+    data = np.clip(data, 0, 2000).astype(np.float32)
     # shift by the empirical mean and divide by the empirical std dev to get data with a approx 0 centered distribution and unit variance
     # empirical values for mean and variance were obtained using image J on large_image_0724.h5
     data = np.divide( np.subtract(data, 140), 40 )
