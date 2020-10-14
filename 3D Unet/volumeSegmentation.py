@@ -11,8 +11,9 @@ module_path = '../tools'
 image_path = "C:\\Users\\Linus Meienberg\\Documents\\ML Datasets\\FruSingleNeuron_20190707\\large_image_0724.h5"
 # Specify the group name of the image channel
 image_channel_key = 't0/channel0'
-# Specify the group name under which the segmentation output should be saved
-segmentation_output_key = 't0/unet'
+# Specify the file name and the group name under which the segmentation output should be saved (this can also be the input file to which a new dataset is added)
+output_path = "C:\\Users\\Linus Meienberg\\Documents\\ML Datasets\\FruSingleNeuron_20190707\\seg_output.h5"
+output_channel_key = 't0/unet'
 # Specify wheter to output a binary segmentation mask or an object probability map
 binary = True
 
@@ -65,10 +66,14 @@ if gpus:
 print('Opening hdf5 file')
 image_h5 = h5py.File(image_path, mode='r+') # Open h5 file with read / write access
 print(image_h5.keys()) # Show Groups (Folders) in root Group of the h5 archive
-
 image = image_h5[image_channel_key] # Open the image dataset
-print('Segmentation Output is written to ' + segmentation_output_key + ' overwriting previous data if it exists')
-mask = image_h5.require_dataset(segmentation_output_key, shape=image.shape , dtype=np.uint8)
+
+if(output_path == image_path):
+    output_h5 = image_h5
+else:
+    output_h5 = h5py.File(output_path, mode='a') # Open h5 file, create if it does not exist yet
+print('Segmentation Output is written to ' + output_path + '/' + output_channel_key + ' overwriting previous data if it exists')
+mask = output_h5.require_dataset(output_channel_key, shape=image.shape , dtype=np.uint8)
 
 # Check if image mean and std need to be calculated
 if (preprocessing_mean is None):
@@ -109,7 +114,8 @@ print('\ntook {:.1f} s for {} iterations'.format(end-start,len(tiler)))
 
 # Close dataset
 image_h5.close()
+output_h5.close()
 
 
-#%% Evaluation Part (Optional) 
-ground_truth = image_h5['mask_key']
+
+# %%
