@@ -8,7 +8,7 @@
 module_path = '../tools/'
 
 # File name of the new or preexisting dataset
-dataset_path= 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\gapFilled_1012.h5'
+dataset_path= 'D:/Janelia/test/testset.h5'
 
 import numpy as np 
 import os, sys
@@ -23,7 +23,7 @@ import tilingStrategy, Dataset3D, visualization
 #%% Script Variables
 
 # Path to the output directory of the script
-output_directory = './test/'
+output_directory = 'D:/Janelia/test/'
 os.makedirs(output_directory, exist_ok=True) 
 
 ########################################################################################
@@ -122,12 +122,13 @@ def preprocessImageV2(x, region):
     huber.fit(mean_bins.reshape(-1,1), log_counts) # sklearn X,y synthax where X is a matrix (samples x observation) and y a vector (samples,) of target values
 
     # Show exponential Fit
+    plt.figure()
     plt.scatter(mean_bins, log_counts) # scatter plot histogram data
     plt.plot(mean_bins,huber.predict(mean_bins.reshape(-1,1)), color = 'green') # line plot huber regressor fit
     plt.ylim([-1,25])
     plt.ylabel('log(Counts)')
     plt.xlabel('Pixel Intensity')
-    plt.title('Approximation of Intensity Counts in region by Exponential Distribution Law\n' + region + ' log(P(I)) = ' + str(huber.coef_[0]) + ' *I+ ' + str(huber.intercept_))
+    plt.title('Approximation of Intensity Counts by Exponential Distribution\n' + region + ' log(P(I)) = ' + str(huber.coef_[0]) + ' *I+ ' + str(huber.intercept_))
     plt.savefig(output_directory + 'region_'+region+'_expFit.png')
 
     # Calculate scaling factor
@@ -135,10 +136,12 @@ def preprocessImageV2(x, region):
     scaling_factor = huber.coef_[0]/b_target
 
     # Scale the image
-    x *= scaling_factor
+    x *= np.array(scaling_factor)
+    print('scaling region ' + region + ' by ' + str(scaling_factor))
 
     # Show scaled intensity distribution
-    plt.hist(im.reshape(-1,1), bins = 1e3, range=[0,2], log=True)
+    plt.figure()
+    plt.hist(x.reshape(-1,1), bins = 500, range=[0,2], log=True)
     plt.xlabel('log(Counts)')
     plt.ylabel('Pixel Intensity')
     plt.title('Adjusted intensity distribution for region ' + region)
@@ -169,7 +172,7 @@ dataset = Dataset3D.Dataset(dataset_path)
 print('preexisting keys : {}'.format(list(dataset.keys())))
 
 # Handle Regions one by one
-for region in regions:
+for region in regions[:1]:
     print('Processing Region '+region)
     im = image[region][...] # load image channel numpy array into working memory
     msk = mask[region][...] # load mask channel numpy array into working memory
