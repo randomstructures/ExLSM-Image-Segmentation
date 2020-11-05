@@ -28,7 +28,7 @@ import utilities
 # Set verbosity of script 
 silent = True
 # where to save the evaluation report
-saveDir = 'D:\\Janelia\\UnetTraining\\evalTest\\'
+saveDir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20201105_OccludedTraining\\'
 if not os.path.exists(saveDir):
     os.makedirs(saveDir)
 
@@ -40,10 +40,15 @@ n_val = None
 subset = ['R1217', 'Q211', 'R1114', 'Q1209', 'Q1232', 'Q2145', 'R2231', 'R2152', 'Q1120', 'Q1136']
 
 # Location of the pretrained model file
-model_path = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20200927_maskComparison\\gapFilled.h5'
+model_path = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20201105_OccludedTraining\\occluded11.h5'
 
 # visualize evaluation examples once every visualization_fraction instances
 visualization_intervall = 3
+
+# wheter to occlude parts of the image
+occlude = True
+occlusion_size = 40
+
 
 #%% Script Setup
 
@@ -116,7 +121,19 @@ def crop_mask(x, y, mask_size=(132,132,132)):
     y = tf.keras.layers.Cropping3D(cropping=crop)(y)
     return x, y
 
-validationset = validationset_raw.map(preprocess).batch(1).map(crop_mask).prefetch(1)
+# Occlude parts of the input image
+def occlude(x,y):
+    x,y = utilities.tf_occlude(x, y, occlusion_size = occlusion_size)
+    return x,y
+
+
+validationset = validationset_raw.map(preprocess)
+
+# Add occlusions if specified by the user
+if occlude:
+    validationset = validationset.map(occlude)
+
+validationset = validationset.batch(1).map(crop_mask).prefetch(1)
 validationset_iter = iter(validationset)
 
 #%% Reload a pretrained model

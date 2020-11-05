@@ -37,11 +37,11 @@ import numpy as np
 import matplotlib.pyplot as plt 
 import tensorflow as tf
 
+sys.path.append(module_path)
 from importlib import reload
 import utilities, model
 
 import os, sys, time
-sys.path.append('../tools/')
 import tilingStrategy, metrics
 
 import h5py
@@ -73,7 +73,11 @@ if(output_path == image_path):
 else:
     output_h5 = h5py.File(output_path, mode='a') # Open h5 file, create if it does not exist yet
 print('Segmentation Output is written to ' + output_path + '/' + output_channel_key + ' overwriting previous data if it exists')
-mask = output_h5.require_dataset(output_channel_key, shape=image.shape , dtype=np.uint8)
+if(binary):
+    mask = output_h5.require_dataset(output_channel_key, shape=image.shape , dtype=np.uint8) # Use integer tensor to save memory
+else:
+    mask = output_h5.require_dataset(output_channel_key, shape=image.shape, dtype= np.float32)
+
 
 # Check if image mean and std need to be calculated
 if (preprocessing_mean is None):

@@ -131,7 +131,7 @@ class Dataset():
         """
         super().__init__()
         if append:
-            self.dataset_h5 = h5py.File(dataset_path)
+            self.dataset_h5 = h5py.File(dataset_path, mode='a')
         else:
             self.dataset_h5 = h5py.File(dataset_path, mode='x') # create new, fail if exists
         # keep track of existing groups

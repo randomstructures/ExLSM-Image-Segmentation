@@ -203,6 +203,57 @@ def tf_affine(image: tf.Tensor, mask: tf.Tensor):
     mask.set_shape(mask_shape)
     return image, mask
 
+#%%
+def tf_occlude(image: tf.Tensor, mask: tf.Tensor, occlusion_size = 50):
+    """ TF Wrapper for numpy function
+    Blanks out a cubic subvolume of the image tensor in each channel and each example in the batch
+
+    Parameters
+    ----------
+    image : np.ndarray
+        image tensor in xyzc format
+    mask : np.ndarray
+        mask tensor (unaltered)
+    occlusion_size : int, optional
+        side length of the cubic subvolume, by default 50
+
+    Returns
+    -------
+    image, mask
+        the processed image, mask pair
+    """
+    image_shape = image.shape
+    mask_shape = mask.shape
+    image, mask = tf.numpy_function(np_occlude, inp=[image,mask], Tout=(tf.float32,tf.int32))
+    image.set_shape(image_shape)
+    mask.set_shape(mask_shape)
+    return image, mask
+
+def np_occlude(image, mask, occlusion_size = 50):
+    """Blanks out a cubic subvolume of the image tensor in each channel and each example in the batch
+
+    Parameters
+    ----------
+    image : np.ndarray
+        image tensor
+    mask : np.ndarray
+        mask tensor (unaltered)
+    occlusion_size : int, optional
+        side length of the cubic subvolume, by default 50
+
+    Returns
+    -------
+    image, mask
+        the processed image, mask pair
+    """
+    image_shape = image.shape
+    coords = [np.random.choice(image_shape[n] - occlusion_size) for n in range(0,3)]
+    [coords.append(coord + occlusion_size) for coord in coords[:3]]
+    image[coords[0]:coords[3],coords[1]:coords[4],coords[2]:coords[5],:] = 0
+    return image, mask
+
+
+#%%
 def elasticDeformation(image, mask):
     """Apply the same elastic deformation to an image and it's associated mask
 
@@ -406,3 +457,4 @@ def getTestImage(image_size = (220,220,220), mask_size= (132,132,132)):
                 crop = tuple([(image_size[i]-mask_size[i])//2 for i in range(len(image_size))])
                 mask = mask[crop[0]:-crop[0] or None,crop[1]:-crop[1] or None, crop[2]:-crop[2] or None]
     return image[...,np.newaxis], mask[...,np.newaxis]
+# %%

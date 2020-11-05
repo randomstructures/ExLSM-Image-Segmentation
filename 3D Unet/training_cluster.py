@@ -36,6 +36,8 @@ import numpy as np
 import tensorflow as tf
 
 print(os.getcwd())
+os.makedirs(save_dir, exist_ok=True) # Enshure that output folder for diagnostics is created
+
 
 sys.path.append(module_path)
 

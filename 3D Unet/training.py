@@ -5,20 +5,29 @@
 #TODO add custom modules to path
 module_path = '..\\'
 training_dataset_path = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\gapFilled_0923.h5'
-save_dir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20200927_maskComparison\\'
-model_file_name = 'gapFilled'
+save_dir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20201105_ExpandedTraining\\'
+model_file_name = 'expanded'
 
 #%% Architecture Parameters
 #bottleneck_dropout_rate = 0.3
-initial_filters = 4 # the number of filter maps in the first convolution operation
+initial_filters = 1 # the number of filter maps in the first convolution operation
 
 # ATTENTION these parameters are not freely changable -> CNN arithmetics
-n_blocks = 2 # the number of Unet downsample/upsample blocks
+n_blocks = 3 # the number of Unet downsample/upsample blocks
+input_size = (220,220,220) # Input size of the unet. Attention: needs to be compatible with training data library
+output_size = (36,36,36) # Ouput size of the unet. This is a function of the input size and network architecture.
+
+# Size of examples in the training library
+library_size = (220,220,220)
 
 #%% Training Parameters
 test_fraction = 0.2 # fraction of training examples that are set aside in the validation set
+
 affineTransform = True 
 elasticDeformation = False
+occlusions = True
+
+occlusion_size = 40 # side length of occuled cubes in training examples
 n_epochs = 15 # number of epochs to train the model
 object_class_weight = 5 # factor by which pixels showing the neuron are multiplied in the loss function
 dice_weight = 0.3 # contribution of dice loss (rest is cce)
@@ -34,6 +43,7 @@ import numpy as np
 import tensorflow as tf
 
 print(os.getcwd())
+os.makedirs(save_dir, exist_ok=True) # Ensure that output folder for diagnostics is created
 
 sys.path.append(module_path)
 
@@ -74,10 +84,10 @@ test = dataset.getGenerator(entries[-n_val:])
 # Instantiate tf Datasets from the generator producing callables, specify the datatype and shape of the generator output
 trainingset_raw = tf.data.Dataset.from_generator(training, 
     output_types=(tf.float32, tf.int32),
-    output_shapes=(tf.TensorShape([220,220,220]),tf.TensorShape([220,220,220])))
+    output_shapes=(tf.TensorShape(library_size),tf.TensorShape(library_size)))
 testset_raw = tf.data.Dataset.from_generator(test, 
     output_types=(tf.float32, tf.int32),
-    output_shapes=(tf.TensorShape([220,220,220]),tf.TensorShape([220,220,220])))
+    output_shapes=(tf.TensorShape(library_size),tf.TensorShape(library_size)))
 
 # the dataset is expected to be preprocessed (image normalized, mask binarized)
 def preprocess(x,y):
@@ -85,12 +95,16 @@ def preprocess(x,y):
     y = tf.one_hot(y, depth=2, dtype=tf.int32) # one hot encode to int tensor
     return x, y
 
-def crop_mask(x, y, mask_size=(132,132,132)):
+def crop_mask(x, y, mask_size= output_size):
     # apply crop after batch dimension is added x and y have (b,x,y,z,c) format while mask size has (x,y,z) format => add offset of 1
     crop = [(y.shape[d+1]-mask_size[d])//2 for d in range(3)]
     #keras implicitly assumes channels last format
     y = tf.keras.layers.Cropping3D(cropping=crop)(y)
     return x, y
+
+def occlude(x,y):
+    x,y = utilities.tf_occlude(x, y, occlusion_size = occlusion_size)
+    return x,y
 
 # chain dataset transformations to construct the input pipeline for training
 trainingset = trainingset_raw.map(preprocess)
@@ -98,12 +112,14 @@ if affineTransform:
     trainingset = trainingset.map(utilities.tf_affine)
 if elasticDeformation:
     trainingset = trainingset.map(utilities.tf_elastic)
+if occlusions:
+    trainingset = trainingset.map(occlude)
 
 trainingset = trainingset.batch(batch_size).map(crop_mask).prefetch(1)
 testset = testset_raw.map(preprocess).batch(batch_size).map(crop_mask).prefetch(1)
 
 #%% Construct model
-unet = model.build_unet(input_shape=(220,220,220,1), n_blocks=n_blocks, initial_filters=initial_filters)
+unet = model.build_unet(input_shape = input_size +(1,), n_blocks=n_blocks, initial_filters=initial_filters)
 #%% Setup Training
 unet.compile(
     optimizer = tf.keras.optimizers.Adam(),
@@ -120,11 +136,12 @@ history = unet.fit(trainingset, epochs=n_epochs,
                                                                  #monitor='val_meanIoU', # Which quantity should be used for model selection
                                                                  #mode='max' # We want this metric to be as large as possible
                                                                  ),
-                              tf.keras.callbacks.CSVLogger(filename=save_dir+log_file_name+'.log')
+                              tf.keras.callbacks.CSVLogger(filename=save_dir+model_file_name+'.log')
                              ],
                    )
 
-#%% Evaluate
+ 
+ #%% Evaluate
 
 ## Generate some Plots from training history 
 # Plot the evolution of the training loss
