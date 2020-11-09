@@ -49,6 +49,8 @@ visualization_intervall = 3
 occlude = True
 occlusion_size = 40
 
+# Output size of the unet. (Input size should be compatible with dataset)
+output_shape = (36,36,36)
 
 #%% Script Setup
 
@@ -114,7 +116,7 @@ def preprocess(x,y):
     return x, y
 
 # Crop
-def crop_mask(x, y, mask_size=(132,132,132)):
+def crop_mask(x, y, mask_size=output_shape):
     # apply crop after batch dimension is added x and y have (b,x,y,z,c) format while mask size has (x,y,z) format => add offset of 1
     crop = [(y.shape[d+1]-mask_size[d])//2 for d in range(3)]
     #keras implicitly assumes channels last format
