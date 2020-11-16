@@ -27,6 +27,94 @@ class Tiling(ABC):
     @abstractmethod
     def coordinatesToIndex(self,x,y,z):
         pass
+
+class RectangularTiling(Tiling):
+    """Divides a volume into 0-alinged chunks
+    """
+    def __init__(self, image_shape : tuple, chunk_shape: tuple):
+        assert len(image_shape) == 3
+        assert len(chunk_shape) == 3
+        self.image_shape = image_shape
+        self.chunk_shape = chunk_shape
+
+        # Calculate the coordinate mesh of the tiling
+        # Each list goes up to the last multiple of tile_shape smaller than image_shape => endpoint excluded
+        self.coords = []
+        for d in range(3):
+            self.coords.append(list(range(0,self.image_shape[d],self.chunk_shape[d])))
+
+        # Expose the shape of the tiling
+        self.shape = [len(d) for d in self.coords]
+
+    def __len__(self):
+        return np.prod(self.shape)
+
+    def indexToCoordinates(self, i):
+        """Convert a tile index to tiling coordinates
+
+        Parameters
+        ----------
+        i : int
+            tile index
+
+        Returns
+        -------
+        x,y,z : int
+            the coordinates of the tile in the tiling grid
+        """     
+         # Sanity check
+        assert i >=0, 'index out of bounds'
+        assert i < len(self), 'index out of bounds'
+        # Convert index to the coordinates of the tile
+        x = i // (self.shape[1]*self.shape[2]) # number of elements that you skip by moving one position in dim 0
+        i = i % (self.shape[1]*self.shape[2])
+        y = i // self.shape[2]
+        z = i % self.shape[2]
+        return x,y,z
+
+    def coordinatesToIndex(self,x,y,z):
+        """Converts the coordinates of a tile in the tiling grid to it's index
+        """
+        assert x < self.shape[0] and x >= 0, 'Coordinates out of bounds'
+        assert y < self.shape[1] and y >= 0, 'Coordinates out of bounds'
+        assert z < self.shape[2] and z >= 0, 'Coordinates out of bounds'
+        i = x*self.shape[1]*self.shape[2]
+        i += y*self.shape[2]
+        i += z
+        return i
+
+    def getTile(self, i):
+        """Returns the array slice coordinates for the i-th input tile.
+        If a chunk protrudes from the image border, it is truncated.
+
+        Parameters
+        ----------
+        i : int
+            index of the input tile
+
+        Returns
+        -------
+        tuple
+             array slicing coordinates (x0,x1,y0,y1,z0,z1)
+        """
+        x,y,z = self.indexToCoordinates(i)
+        # assemble the coordinates of the target chunk
+        x0 = self.coords[0][x]
+        y0 = self.coords[1][y]
+        z0 = self.coords[2][z]
+        x1 = x0 + self.chunk_shape[0]
+        y1 = y0 + self.chunk_shape[1]
+        z1 = z0 + self.chunk_shape[2]
+        x1 = np.min([x1, self.image_shape[0]])
+        y1 = np.min([y1, self.image_shape[1]])
+        z1 = np.min([z1, self.image_shape[2]])
+        return (x0,x1,y0,y1,z0,z1)
+
+    def __getitem__(self, index):
+        if index >= len(self):
+            raise IndexError
+        return self.getTile(index)
+    
 #%%
 class UnetTiling3D(Tiling):
     """
