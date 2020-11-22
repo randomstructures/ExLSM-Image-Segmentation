@@ -1,6 +1,6 @@
-    """This script prepares a Dataset of 3D tensors as described in the Dataset3D.py module.
-    It can be used to train and evaluate machine learning models.
-    """
+"""This script prepares a Dataset of 3D tensors as described in the Dataset3D.py module.
+It can be used to train and evaluate machine learning models.
+"""
 
 #%% Imports
 
@@ -18,6 +18,7 @@ from sklearn.linear_model import HuberRegressor
 import h5py
 sys.path.append(module_path)
 import tilingStrategy, Dataset3D, visualization
+import preProcessing 
 
 
 #%% Script Variables
@@ -69,12 +70,9 @@ mask['B1'] = regions_h5[2]['t0/channel2']
 # The following function will be applied globaly PER REGION to normalize the image data
 # Neural Networks rely on normalized image data (eg pixel values roughly in [-1,1] and comparable between specimens)
 # WARNING Once a network has been trained on input that has been preprocessed by a certain preprocessing function, all the input to the network has to be preprocess in the same way !!!
-def preprocessImage(x, mean, std):
-    # clip, and z normalize image
-    x = x.astype(np.float32)
-    x = np.clip(x,0, 1400)
-    x = np.subtract(x, mean)
-    x = np.divide(x, std)
+def preprocessImage(x):
+    sf = preProcessing.calculateScalingFactor(x)
+    x = preProcessing.scaleImage(x, sf)
     return x
 
 # The following functions will be applied globaly PER REGION to preprocess the mask
@@ -82,72 +80,6 @@ def preprocessMask(x):
     # binarize mask and one hot encode
     x = np.clip(x,0,1)
     x = x.astype(np.int32)
-    return x
-
-
-def preprocessImageV2(x, region):
-    """This Preprocessing function scales the pixel intensities, such that the majority of pixel values lie in the intervall [0,1]
-
-    The intensity distribution of the image is assumed to be of the form 
-        P(I) = P_0 * exp(-b*I) 
-            or in log form
-        log(P(I)) = log(P_0) - b*I
-        I : pixel intensity
-        P(I) : probability / relative counts in histogram
-
-    For a given image b is estimated using Huber regression (outlier robust linear regression, implemented in scikit learn)
-
-    The decay rate b is adjusted to be comparable between samples by scaling the intensity values I
-        scaling_factor = b_measured/b_target
-
-    Empirically, a target decay rate of b_target = ln(10)/0.5 was chosen. This corresponds to a reduction of intensity counts by a factor of 10, every 0.5 Intensity units in the histogram.
-
-
-    Parameters
-    ----------
-    x : [type]
-        [description]
-    """
-    x = x.astype(np.float32)
-    # calculate intensity distribution
-    counts, bins = np.histogram(x, bins=1000, range=[0,4000]) # EMPIRICAL the majority of intensity values should be within this range for ALL imaged regions!
-    # Calculate mean bin value and log counts
-    mean_bins = (bins[:-1] + bins[1:])/2
-    log_counts = np.log(counts)
-    # Drop all bins with zero count (gives runnaway when taking log counts / not informative)
-    mean_bins = mean_bins[np.isfinite(log_counts)]
-    log_counts = log_counts[np.isfinite(log_counts)]
-    # Instantiate and fit the Huber Regressor
-    huber = HuberRegressor() # Use sklearns default values -> fits intercept, epsilon = 1.35, alpha = 1e-4
-    huber.fit(mean_bins.reshape(-1,1), log_counts) # sklearn X,y synthax where X is a matrix (samples x observation) and y a vector (samples,) of target values
-
-    # Show exponential Fit
-    plt.figure()
-    plt.scatter(mean_bins, log_counts) # scatter plot histogram data
-    plt.plot(mean_bins,huber.predict(mean_bins.reshape(-1,1)), color = 'green') # line plot huber regressor fit
-    plt.ylim([-1,25])
-    plt.ylabel('log(Counts)')
-    plt.xlabel('Pixel Intensity')
-    plt.title('Approximation of Intensity Counts by Exponential Distribution\n' + region + ' log(P(I)) = ' + str(huber.coef_[0]) + ' *I+ ' + str(huber.intercept_))
-    plt.savefig(output_directory + 'region_'+region+'_expFit.png')
-
-    # Calculate scaling factor
-    b_target = -np.log(10)/0.5 # EMPIRICAL Probability should reduce to 1/10th after 0.5 intensity units to get an intensity distribution within [0,1]
-    scaling_factor = huber.coef_[0]/b_target
-
-    # Scale the image
-    x *= np.array(scaling_factor)
-    print('scaling region ' + region + ' by ' + str(scaling_factor))
-
-    # Show scaled intensity distribution
-    plt.figure()
-    plt.hist(x.reshape(-1,1), bins = 500, range=[0,2], log=True)
-    plt.xlabel('log(Counts)')
-    plt.ylabel('Pixel Intensity')
-    plt.title('Adjusted intensity distribution for region ' + region)
-    plt.savefig(output_directory + 'region_'+region+'_scaled.png')
-
-    # return scaled image
     return x
 
 ##############################################################################
@@ -195,7 +127,7 @@ for region in regions[:1]:
 
     # Apply preprocessing to the image and mask arrays (copy in working memory)
     #im = preprocessImage( im, mean, std )
-    im = preprocessImageV2(im, region)
+    im = preprocessImage( im )
     msk  = preprocessMask( msk )
 
     #########################################################
