@@ -5,25 +5,42 @@
 
 # The path where custom modules are located
 module_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/modules/'
+#module_path = '../tools/'
 
 ##IMAGE I/O
 # Specify the path to the image volume stored as h5 file
 image_path = '/nrs/dickson/lillvis/temp/linus/Unet_Evaluation/RegionCrops/Q1.h5'
+#image_path = '/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
+
 # Specify the group name of the image channel
 image_channel_key = 't0/channel1'
+
 # Specify the file name and the group name under which the segmentation output should be saved (this can also be the input file to which a new dataset is added)
-output_directory = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201105_DeepenUnet/train1/eval50/"
-output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201105_DeepenUnet/train1/eval50/Q1_seg.h5"
-output_channel_key = 't0/train1_epoch50'
+output_directory = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/"
+output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
+#output_directory = "/mnt/d/Janelia/UnetTraining/test/" # directory for report files
+#output_path = "/mnt/d/Janelia/UnetTraining/test.h5" # path to the output file (h5)
+output_channel_key = 't0/test1'
 # Specify wheter to output a binary segmentation mask or an object probability map
-binary = False
+binary = True
 
 ## Model File 
 # Specify the path to the pretrained model file
-model_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201105_DeepenUnet/train1/deep50.h5'
+model_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201105_Occlusions/train1/occluded50.h5'
+#model_path = '/mnt/d/Janelia/UnetTraining/20200928_VVDMaskNetwork/20200928_maskComparison/vvdOvermask15.h5'
+
+
+model_input_shape = (220,220,220)
+model_output_shape = (132,132,132)
+
+# Specify wheter to run the postprocessing function on the segmentation ouput
+
+watershed_postprocessing = False
 
 
 #%% Imports 
+import sys, getopt
+import random
 import numpy as np 
 import matplotlib.pyplot as plt 
 import tensorflow as tf
@@ -34,6 +51,7 @@ sys.path.append(module_path)
 
 import tilingStrategy, metrics
 import utilities, model
+import postProcessing
 
 import h5py
 from tqdm import tqdm
@@ -107,83 +125,155 @@ def preprocessImageV2(x, region):
 
 
 #%% Setup
+def gpu_fix():
+    # Fix for tensorflow-gpu issues that I found online... (don't ask me what it does)
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            # Currently, memory growth needs to be the same across GPUs
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+                logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+                print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+        except RuntimeError as e:
+            # Memory growth must be set before GPUs have been initialized
+            print(e)
 
-# Fix for tensorflow-gpu issues that I found online... (don't ask me what it does)
-gpus = tf.config.experimental.list_physical_devices('GPU')
-if gpus:
-  try:
-    # Currently, memory growth needs to be the same across GPUs
-    for gpu in gpus:
-      tf.config.experimental.set_memory_growth(gpu, True)
-    logical_gpus = tf.config.experimental.list_logical_devices('GPU')
-    print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
-  except RuntimeError as e:
-    # Memory growth must be set before GPUs have been initialized
-    print(e)
+def parallel_hdf5_read(image_path, image_channel_key, location):
+    # This code was adapted from Josh's pipeline
+    read_img = True
+    while read_img:
+        try:
+            with h5py.File(image_path, 'r') as f:
+                im = f[image_channel_key][location[0]:location[1], location[2]:location[3], location[4]:location[5]]
+            read_img = False
+        except OSError:  # If other process is accessing the image, wait 5 seconds to try again
+            time.sleep(random.randint(1,5))
+    return im
 
+def parallel_hdf5_write(im, output_path, output_channel_key, location):
+    """
+    write an image array into part of the hdf5 image file
+    Args:
+    im: an image array
+    output_path: an existing hdf5 file to partly write in
+    output_channel_key: the (absolute) name of the output hdf5 dataset in the file
+    location: a tuple of (x0,x1,y0,y1,z0,z1) indicating what area to write
+    """
+    assert os.path.exists(output_path), \
+        print("ERROR: hdf5 file does not exist!")        
+    write_img = True
+    while write_img:
+        try:
+            with h5py.File(output_path, 'r+') as f:
+                f[output_channel_key][location[0]:location[1], location[2]:location[3], location[4]:location[5]] = im
+            write_img = False
+        except OSError: # If other process is accessing the image, wait 5 seconds to try again
+            time.sleep(random.randint(1,5))
+    return None
 #%% Data Input
+def main(argv):
 
-print('Opening hdf5 file')
-image_h5 = h5py.File(image_path, mode='r+') # Open h5 file with read / write access
-print(image_h5.keys()) # Show Groups (Folders) in root Group of the h5 archive
-image = image_h5[image_channel_key] # Open the image dataset
+    gpu_fix()
 
-if(output_path == image_path):
-    output_h5 = image_h5
-else:
-    output_h5 = h5py.File(output_path, mode='a') # Open h5 file, create if it does not exist yet
-print('Segmentation Output is written to ' + output_path + '/' + output_channel_key + ' overwriting previous data if it exists')
-if(binary):
-    mask = output_h5.require_dataset(output_channel_key, shape=image.shape , dtype=np.uint8) # Use integer tensor to save memory
-else:
-    mask = output_h5.require_dataset(output_channel_key, shape=image.shape, dtype = np.float32)
+    #%% Check if this file has been invoked with command line arguments specifying a subvolume to work on
+    work_on_subvolume = False
+    location = []
 
-# Check if image mean and std need to be calculated
-#if (preprocessing_mean is None):
-#    preprocessing_mean = np.mean(image)
-#if (preprocessing_std is None):
-#    preprocessing_std = np.std(image)
+    #TODO install a switch that alows to read/segment/write to a part of the image
+    #TODO retrieve the subvolume from the command line 
+    try:
+        options, remainder = getopt.getopt(argv, "l:", ["location="])
+    except:
+        print("ERROR:", sys.exc_info()[0]) 
+        print("Usage: unet_gpu.py -l <location>\nwhere location is specified as x0,x1,y0,y1,z0,z1")
+        sys.exit(1)
 
-# Apply preprocessing globaly !
-image = preprocessImageV2(image[...], region='Q1')
+    # Get input arguments
+    for opt, arg in options:
+        if opt in ('-l', '--location'):
+            location.append(arg.split(","))
+            location = tuple(map(int, location[0]))
+            assert len(location) == 6, 'There must be 6 coordinates to define a subvolume'
+            print("working on subvolume with location : " + str(location))
+            work_on_subvolume = True
 
-#%% Load Model File
-# Restore the trained model. Specify where keras can find custom objects that were used to build the unet
-unet = tf.keras.models.load_model(model_path, compile=False,
-                                  custom_objects={"InputBlock" : model.InputBlock,
-                                                    "DownsampleBlock" : model.DownsampleBlock,
-                                                    "BottleneckBlock" : model.BottleneckBlock,
-                                                    "UpsampleBlock" : model.UpsampleBlock,
-                                                    "OutputBlock" : model.OutputBlock})
 
-print('The unet works with\ninput shape {}\noutput shape {}'.format(unet.input.shape,unet.output.shape))
+   
 
-# Set up a unet tiler for the input image
-tiler = tilingStrategy.UnetTiler3D(image, mask=mask, output_shape=(36,36,36 ), input_shape=(220,220,220))
-
-#%% Perform segmentation
-start = time.time()
-for i in tqdm(range(len(tiler)), desc='tiles processed'): # gives feedback on progress of for loop
-    # Read input slice from volume
-    # processing was applied globaly
-    #input_slice = preprocessImage(tiler.getSlice(i), preprocessing_mean, preprocessing_std)
-    input_slice = tiler.getSlice(i)
-    # Add batch and channel dimension and feed to unet
-    output_slice = unet.predict(input_slice[np.newaxis,:,:,:,np.newaxis])
-    # Convert logits to binary segmentation mask or object probability map
-    if(binary):
-        output_mask = np.argmax(output_slice, axis=-1)[0,...] # use argmax on channels and remove batch dimension
+    # Load image or image subvolume into working memory
+    if(work_on_subvolume):
+        image = parallel_hdf5_read(image_path, image_channel_key, location)
     else:
-        output_mask = tf.nn.softmax(output_slice, axis=-1)[0,...,1] # use softmax on channels, take object cannel and remove batch dimension
-    # Write slice to canvas
-    tiler.writeSlice(i, output_mask)
-end = time.time()
-print('\ntook {:.1f} s for {} iterations'.format(end-start,len(tiler)))
+        print('Opening hdf5 file')
+        image_h5 = h5py.File(image_path, mode='r+') # Open h5 file with read / write access
+        print(image_h5.keys()) # Show Groups (Folders) in root Group of the h5 archive
+        image = image_h5[image_channel_key] # Open the image dataset
+        image = image[...]
+        # Close image dataset
+        image_h5.close()
 
-# Close dataset
-image_h5.close()
-output_h5.close()
+    # Apply preprocessing globaly !
+    image = preprocessImageV2(image, region='Q1')
+
+    #%% Load Model File
+    # Restore the trained model. Specify where keras can find custom objects that were used to build the unet
+    unet = tf.keras.models.load_model(model_path, compile=False,
+                                    custom_objects={"InputBlock" : model.InputBlock,
+                                                        "DownsampleBlock" : model.DownsampleBlock,
+                                                        "BottleneckBlock" : model.BottleneckBlock,
+                                                        "UpsampleBlock" : model.UpsampleBlock,
+                                                        "OutputBlock" : model.OutputBlock})
+
+    print('The unet works with\ninput shape {}\noutput shape {}'.format(unet.input.shape,unet.output.shape))
+
+    # Set up a unet tiler for the input image
+    tiler = tilingStrategy.UnetTiler3D(image, mask=None, output_shape=model_output_shape, input_shape=model_input_shape)
+    # with mask = None, a new array with the same size as the image is allocated by the UnetTiler3D class
+
+    #%% Perform segmentation
+    start = time.time()
+    for i in tqdm(range(len(tiler)), desc='tiles processed'): # gives feedback on progress of for loop
+        # Read input slice from volume
+        # processing was applied globaly
+        #input_slice = preprocessImage(tiler.getSlice(i), preprocessing_mean, preprocessing_std)
+        input_slice = tiler.getSlice(i)
+        # Add batch and channel dimension and feed to unet
+        output_slice = unet.predict(input_slice[np.newaxis,:,:,:,np.newaxis])
+        # Convert logits to binary segmentation mask or object probability map
+        if(binary):
+            output_mask = np.argmax(output_slice, axis=-1)[0,...] # use argmax on channels and remove batch dimension
+        else:
+            output_mask = tf.nn.softmax(output_slice, axis=-1)[0,...,1] # use softmax on channels, take object cannel and remove batch dimension
+        # Write slice to canvas
+        tiler.writeSlice(i, output_mask)
+    end = time.time()
+    print('\ntook {:.1f} s for {} iterations'.format(end-start,len(tiler)))
+
+
+    # Apply post Processing globaly
+    if(watershed_postprocessing):
+        tiler.mask.image = postProcessing.clean_watershed(tiler.mask.image, high_confidence_threshold=0.98, low_confidence_threshold=0.2)
+
+    # Save segmentation result
+    
+    if(work_on_subvolume):
+        #print('There is a dataset ' + output_channel_key + ' with shape ' + str(list(output_h5[output_channel_key].shape)))
+        #print('and dtype ' + str(output_h5[output_channel_key].dtype))
+        #output_h5[output_channel_key][location[0]:location[1],location[2]:location[3],location[4]:location[5]] = tiler.mask.image # insert the mask slice
+        parallel_hdf5_write(tiler.mask.image, output_path, output_channel_key, location)
+    else:
+        output_h5 = h5py.File(output_path, mode='a') # Open h5 file, create if it does not exist yet
+        print('Segmentation Output is written to ' + output_path + '/' + output_channel_key + ' overwriting previous data if it exists')
+        if(binary):
+            #mask = output_h5.require_dataset(output_channel_key, shape=image.shape , dtype=np.uint8) # Use integer tensor to save memory
+            output_h5.create_dataset(output_channel_key, data=tiler.mask, dtype=np.uint8)
+        else:
+            #mask = output_h5.require_dataset(output_channel_key, shape=image.shape, dtype = np.float32)
+            output_h5.create_dataset(output_channel_key, data=tiler.mask, dtype=np.float32)
+        output_h5.close()
 
 
 
-# %%
+if __name__ == "__main__":
+    main(sys.argv[1:])
