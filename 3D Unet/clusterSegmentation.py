@@ -8,6 +8,7 @@ Linus Meienberg
 import sys
 import subprocess
 import numpy as np
+import random
 #import z5py
 import h5py
 
@@ -19,26 +20,44 @@ import tilingStrategy
 #%% Script variables
 
 dataset_path = '/nrs/dickson/lillvis/temp/linus/Unet_Evaluation/RegionCrops/Q1.h5'
+input_key = 't0/channel1'
 #'/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.n5'
 # use z5py for n5 format
 #dataset = z5py.File(dataset_path)
 # use h5py for h5 format
-dataset = h5py.File(dataset_path, mode='r')
-image = dataset['t0/channel1']
-# remember the shape of the image
-image_shape = image.shape
-#dataset['setup0/timepoint0/s0']
-# Release Resources
-dataset.close()
 
 output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
 #"/mnt/d/Janelia/UnetTraining/test.h5"
 output_key = "t0/test1"
 
+binary = True
+
+precalculateScalingFactor = True
+
+#%% Open input dataset and define tiling
+
+dataset = h5py.File(dataset_path, mode='r')
+image = dataset[input_key]
+# remember the shape of the image
+image_shape = image.shape
+
 tiling = tilingStrategy.RectangularTiling(image_shape, chunk_shape=(500,500,500))
 print('Jobs are created based on a tiling of ' + str(tiling.shape))
 
-binary = True
+if(precalculateScalingFactor):
+    # For very large images: Calculate a common scaling factor by randomly subsampling the input image
+    def getTile(image, tile):
+        return image[tile[0]:tile[1], tile[2]:tile[3], tile[4]:tile[5]]
+
+    indices = np.arange(len(tiling))
+    subset = random.choices(indices, k=2)
+    sf = [preProcessing.calculateScalingFactor(getTile(image, index)) for index in subset]
+    mean_sf = np.mean(sf)
+
+# Release Resources
+dataset.close()
+
+
 
 
 
@@ -57,6 +76,7 @@ else:
 output_file.close()
 
 
+
 # %% Dispatch jobs on subvolumes
 
 job_prefix = 'l_mws'
@@ -72,11 +92,16 @@ for i in range(len(tiling)):
     # bsub -J lsegtot -n 5 -gpu "num=1" -q gpu_rtx -o segtot.log python volumeSegmentation.py
     jobname = job_prefix + str(i)
     logfile = jobname + '.log'
+    # Construct command line argument for janelia's cluster job submission system
+    arglist = ['bsub','-J',jobname,'-n','5','-gpu', '\"num=1\"', '-q', 'gpu_rtx', '-o', logfile, 'python', 'volumeSegmentation.py']
+    if(precalculateScalingFactor):
+        arglist.append(['--scaling', mean_sf])
+    arglist.append(['-l', tile])
+    
     jobs.append(
-        subprocess.Popen(
-            ['bsub','-J',jobname,'-n','5','-gpu', '\"num=1\"', '-q', 'gpu_rtx', '-o', logfile, 'python', 'volumeSegmentation.py','-l', tile]
-        )
+        subprocess.Popen(arglist)
     )
+
 
 
 
