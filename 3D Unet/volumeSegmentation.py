@@ -4,37 +4,38 @@
 #%% Script variables
 
 # The path where custom modules are located
-module_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/modules/'
-#module_path = '../tools/'
+#module_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/modules/'
+module_path = '../tools/'
 
 ##IMAGE I/O
 # Specify the path to the image volume stored as h5 file
-image_path = '/nrs/dickson/lillvis/temp/linus/Unet_Evaluation/RegionCrops/Q1.h5'
-#image_path = '/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
+#image_path = '/nrs/dickson/lillvis/temp/linus/Unet_Evaluation/RegionCrops/Q1.h5'
+image_path = '/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
 
 # Specify the group name of the image channel
 image_channel_key = 't0/channel1'
 
 # Specify the file name and the group name under which the segmentation output should be saved (this can also be the input file to which a new dataset is added)
-output_directory = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/"
-output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
-#output_directory = "/mnt/d/Janelia/UnetTraining/test/" # directory for report files
-#output_path = "/mnt/d/Janelia/UnetTraining/test.h5" # path to the output file (h5)
+#output_directory = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/"
+#output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
+output_directory = "/mnt/d/Janelia/UnetTraining/test/" # directory for report files
+output_path = "/mnt/d/Janelia/UnetTraining/test/test.h5" # path to the output file (h5)
 output_channel_key = 't0/test1'
 # Specify wheter to output a binary segmentation mask or an object probability map
-binary = True
+binary = False
 
 ## Model File 
 # Specify the path to the pretrained model file
-model_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201105_Occlusions/train1/occluded50.h5'
-#model_path = '/mnt/d/Janelia/UnetTraining/20200928_VVDMaskNetwork/20200928_maskComparison/vvdOvermask15.h5'
+#model_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201105_Occlusions/train1/occluded50.h5'
+model_path = '/mnt/d/Janelia/UnetTraining/20200928_VVDMaskNetwork/20200928_maskComparison/vvdOvermask15.h5'
 
 
 model_input_shape = (220,220,220)
 model_output_shape = (132,132,132)
+batch_size = 4 # Tune batch size to speed up computation.
+
 
 # Specify wheter to run the postprocessing function on the segmentation ouput
-
 watershed_postprocessing = False
 
 
@@ -105,18 +106,18 @@ def parallel_hdf5_write(im, output_path, output_channel_key, location):
         except OSError: # If other process is accessing the image, wait 5 seconds to try again
             time.sleep(random.randint(1,5))
     return None
+
 #%% Data Input
 def main(argv):
 
+    # Can be commented out on cluster.
     gpu_fix()
 
     #%% Check if this file has been invoked with command line arguments specifying a subvolume to work on
     work_on_subvolume = False
     location = []
-    intensityScaling = None # Holds a precomputed scaling value if it has allready been calculated
-
-    #TODO install a switch that alows to read/segment/write to a part of the image
-    #TODO retrieve the subvolume from the command line 
+    scalingFactor = None # Holds a precomputed scaling value if it has allready been calculated
+    #%%
     try:
         options, remainder = getopt.getopt(argv, "l:", ["location=","scaling="])
     except Exception as e:
@@ -134,11 +135,10 @@ def main(argv):
             print("working on subvolume with location : " + str(location))
             work_on_subvolume = True
         if opt in ('--scaling'):
-            intensityScaling = float(arg)
-            print('Scaling image by precomputed factor of ' + str(intensityScaling))
+            scalingFactor = float(arg)
+            print('Scaling image by precomputed factor of ' + str(scalingFactor))
 
-   
-
+    #%%
     # Load image or image subvolume into working memory
     if(work_on_subvolume):
         image = parallel_hdf5_read(image_path, image_channel_key, location)
@@ -147,15 +147,17 @@ def main(argv):
         image_h5 = h5py.File(image_path, mode='r+') # Open h5 file with read / write access
         print(image_h5.keys()) # Show Groups (Folders) in root Group of the h5 archive
         image = image_h5[image_channel_key] # Open the image dataset
-        image = image[...]
+        image = image[...] # Copy content to working memory
         # Close image dataset
         image_h5.close()
 
-    # Apply preprocessing globaly !
-    if intensityScaling is None: # Calculate scaling factor from image data if no predefined value was given
-        intensityScaling = preProcessing.calculateScalingFactor(image)
 
-    image = preProcessing.scaleImage(image, intensityScaling)
+    # Calculate scaling factor from image data if no predefined value was given
+    if scalingFactor is None: 
+        scalingFactor = preProcessing.calculateScalingFactor(image)
+
+    # Apply preprocessing globaly !
+    image = preProcessing.scaleImage(image, scalingFactor)
 
     #%% Load Model File
     # Restore the trained model. Specify where keras can find custom objects that were used to build the unet
@@ -169,10 +171,12 @@ def main(argv):
     print('The unet works with\ninput shape {}\noutput shape {}'.format(unet.input.shape,unet.output.shape))
 
     # Set up a unet tiler for the input image
-    tiler = tilingStrategy.UnetTiler3D(image, mask=None, output_shape=model_output_shape, input_shape=model_input_shape)
     # with mask = None, a new array with the same size as the image is allocated by the UnetTiler3D class
+    tiler = tilingStrategy.UnetTiler3D(image, mask=None, output_shape=model_output_shape, input_shape=model_input_shape)
+
 
     #%% Perform segmentation
+    """
     start = time.time()
     for i in tqdm(range(len(tiler)), desc='tiles processed'): # gives feedback on progress of for loop
         # Read input slice from volume
@@ -190,14 +194,45 @@ def main(argv):
         tiler.writeSlice(i, output_mask)
     end = time.time()
     print('\ntook {:.1f} s for {} iterations'.format(end-start,len(tiler)))
+    """
+
+    def preprocess_dataset(x):
+        x = tf.expand_dims(x, axis=-1) # The unet expects the input data to have an additional channel axis.
+        return x
+
+    predictionset_raw = tf.data.Dataset.from_generator(tiler.getGeneratorFactory(),
+        output_types = (tf.float32),
+        output_shapes= (tf.TensorShape(model_input_shape)))
+
+    predictionset = predictionset_raw.map(preprocess_dataset).batch(batch_size).prefetch(1)
+
+    #%% 
+    # Counter variable over all tiles
+    tile = 0 
+    progress_bar = tqdm(desc='Tiles processed', total = len(tiler))
+    while tile < len(tiler):
+        batch = unet.predict(predictionset, steps = 1) # predict one batch
+
+        # Reduce the channel dimension to binary or pseudoprobability
+        if(binary):
+            batch = np.argmax(batch, axis=-1)# use argmax on channels 
+        else:
+            batch = tf.nn.softmax(batch, axis=-1)[...,1] # use softmax on channels and retain object cannel 
+
+        # Write each tile in the batch to it's correct location in the output
+        for i in range(batch.shape[0]):
+            tiler.writeSlice(tile, batch[i,...])
+            tile += 1
+        
+        progress_bar.update(batch.shape[0])
 
 
     # Apply post Processing globaly
     if(watershed_postprocessing):
         tiler.mask.image = postProcessing.clean_watershed(tiler.mask.image, high_confidence_threshold=0.98, low_confidence_threshold=0.2)
 
-    # Save segmentation result
-    
+    #%% Save segmentation result
+
     if(work_on_subvolume):
         #print('There is a dataset ' + output_channel_key + ' with shape ' + str(list(output_h5[output_channel_key].shape)))
         #print('and dtype ' + str(output_h5[output_channel_key].dtype))
@@ -205,16 +240,23 @@ def main(argv):
         parallel_hdf5_write(tiler.mask.image, output_path, output_channel_key, location)
     else:
         output_h5 = h5py.File(output_path, mode='a') # Open h5 file, create if it does not exist yet
-        print('Segmentation Output is written to ' + output_path + '/' + output_channel_key + ' overwriting previous data if it exists')
+        print('Segmentation Output is written to ' + output_path + '/' + output_channel_key)
+        if output_channel_key in output_h5:
+            print('overwriting previous data')
+            del output_h5[output_channel_key]
+            
         if(binary):
             #mask = output_h5.require_dataset(output_channel_key, shape=image.shape , dtype=np.uint8) # Use integer tensor to save memory
-            output_h5.create_dataset(output_channel_key, data=tiler.mask, dtype=np.uint8)
+            output_h5.create_dataset(output_channel_key, data=tiler.mask.image, dtype=np.uint8)
         else:
             #mask = output_h5.require_dataset(output_channel_key, shape=image.shape, dtype = np.float32)
-            output_h5.create_dataset(output_channel_key, data=tiler.mask, dtype=np.float32)
+            output_h5.create_dataset(output_channel_key, data=tiler.mask.image, dtype=np.float32)
+
         output_h5.close()
 
 
 
+
+# %%
 if __name__ == "__main__":
     main(sys.argv[1:])

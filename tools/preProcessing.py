@@ -78,6 +78,7 @@ def calculateScalingFactor(x, output_directory = None, filename = None):
 def scaleImage(x, scaling_factor):
     """Scale the pixel values of an image by a given scaling factor
     """
+    x = x.astype(np.float32)
     x *= np.array(scaling_factor)
     return x
 

@@ -15,7 +15,7 @@ import h5py
 module_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/modules/'
 sys.path.append(module_path)
 
-import tilingStrategy
+import tilingStrategy, preProcessing
 
 #%% Script variables
 
@@ -30,9 +30,12 @@ output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerS
 #"/mnt/d/Janelia/UnetTraining/test.h5"
 output_key = "t0/test1"
 
+chunk_shape = (500,500,500) # Size of the subvolumes delegated to each worker
+
 binary = True
 
 precalculateScalingFactor = True
+n_tiles = 6 # number of tiles to randomly sample for calculation of the scaling factor
 
 #%% Open input dataset and define tiling
 
@@ -42,7 +45,7 @@ image = dataset[input_key]
 image_shape = image.shape
 
 tiling = tilingStrategy.RectangularTiling(image_shape, chunk_shape=(500,500,500))
-print('Jobs are created based on a tiling of ' + str(tiling.shape))
+print('Jobs are created based on a tiling of ' + str(tiling.shape) + ', ' + str(len(tiling)) + ' tiles in total.')
 
 if(precalculateScalingFactor):
     # For very large images: Calculate a common scaling factor by randomly subsampling the input image
@@ -50,9 +53,11 @@ if(precalculateScalingFactor):
         return image[tile[0]:tile[1], tile[2]:tile[3], tile[4]:tile[5]]
 
     indices = np.arange(len(tiling))
-    subset = random.choices(indices, k=2)
-    sf = [preProcessing.calculateScalingFactor(getTile(image, index)) for index in subset]
+    subset = random.choices(indices, k=n_tiles)
+    sf = [preProcessing.calculateScalingFactor(getTile(image, tiling.getTile(index))) for index in subset]
     mean_sf = np.mean(sf)
+    print('tile-wise scaling factor' + str(sf))
+    print('Precalculated a scaling factor of {} based on {}/{} tiles'.format(mean_sf, n_tiles, len(tiling)))
 
 # Release Resources
 dataset.close()
@@ -78,7 +83,6 @@ output_file.close()
 
 
 # %% Dispatch jobs on subvolumes
-
 job_prefix = 'l_mws'
 
 jobs = []
@@ -95,13 +99,10 @@ for i in range(len(tiling)):
     # Construct command line argument for janelia's cluster job submission system
     arglist = ['bsub','-J',jobname,'-n','5','-gpu', '\"num=1\"', '-q', 'gpu_rtx', '-o', logfile, 'python', 'volumeSegmentation.py']
     if(precalculateScalingFactor):
-        arglist.append(['--scaling', mean_sf])
-    arglist.append(['-l', tile])
+        arglist.extend(['--scaling', str(mean_sf)])
+    arglist.extend(['-l', tile])
     
     jobs.append(
         subprocess.Popen(arglist)
     )
-
-
-
 

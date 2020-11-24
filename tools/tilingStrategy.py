@@ -500,3 +500,14 @@ class UnetTiler3D():
         aabb = self.tiling.getOutputTile(index) # retrieve aabb that belongs to the slice index
         self.mask.writeAABB(aabb, tile)
 
+    def getGeneratorFactory(self):
+        """Returns a generator function that iterates over all tiles of the Unet Tiler
+        """
+        def generatorFactory():
+            for tile in range(len(self)):
+                yield self.getSlice(tile)
+
+        return generatorFactory
+
+
+
