@@ -10,7 +10,7 @@ module_path = '../tools/'
 ##IMAGE I/O
 # Specify the path to the image volume stored as h5 file
 #image_path = '/nrs/dickson/lillvis/temp/linus/Unet_Evaluation/RegionCrops/Q1.h5'
-image_path = '/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
+image_path = 'D:/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
 
 # Specify the group name of the image channel
 image_channel_key = 't0/channel1'
@@ -18,8 +18,8 @@ image_channel_key = 't0/channel1'
 # Specify the file name and the group name under which the segmentation output should be saved (this can also be the input file to which a new dataset is added)
 #output_directory = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/"
 #output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
-output_directory = "/mnt/d/Janelia/UnetTraining/test/" # directory for report files
-output_path = "/mnt/d/Janelia/UnetTraining/test/test.h5" # path to the output file (h5)
+output_directory = "D:/Janelia/UnetTraining/test/" # directory for report files
+output_path = "D:/Janelia/UnetTraining/test/test.h5" # path to the output file (h5)
 output_channel_key = 't0/test1'
 # Specify wheter to output a binary segmentation mask or an object probability map
 binary = False
@@ -27,12 +27,12 @@ binary = False
 ## Model File 
 # Specify the path to the pretrained model file
 #model_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201105_Occlusions/train1/occluded50.h5'
-model_path = '/mnt/d/Janelia/UnetTraining/20200928_VVDMaskNetwork/20200928_maskComparison/vvdOvermask15.h5'
+model_path = 'D:/Janelia/UnetTraining/20201030_Preprocessing2/pp2_train150.h5'
 
 
 model_input_shape = (220,220,220)
 model_output_shape = (132,132,132)
-batch_size = 4 # Tune batch size to speed up computation.
+batch_size = 1 # Tune batch size to speed up computation.
 
 
 # Specify wheter to run the postprocessing function on the segmentation ouput
@@ -143,7 +143,7 @@ def main(argv):
     if(work_on_subvolume):
         image = parallel_hdf5_read(image_path, image_channel_key, location)
     else:
-        print('Opening hdf5 file')
+        print('Opening hdf5 file ' + image_path)
         image_h5 = h5py.File(image_path, mode='r+') # Open h5 file with read / write access
         print(image_h5.keys()) # Show Groups (Folders) in root Group of the h5 archive
         image = image_h5[image_channel_key] # Open the image dataset
@@ -154,10 +154,10 @@ def main(argv):
 
     # Calculate scaling factor from image data if no predefined value was given
     if scalingFactor is None: 
-        scalingFactor = preProcessing.calculateScalingFactor(image)
+        scalingFactor = preProcessing.calculateScalingFactor(image, output_directory=output_directory, filename='mws_test')
 
     # Apply preprocessing globaly !
-    image = preProcessing.scaleImage(image, scalingFactor)
+    image = preProcessing.scaleImage(image, scalingFactor, output_directory=output_directory, filename='mws_test')
 
     #%% Load Model File
     # Restore the trained model. Specify where keras can find custom objects that were used to build the unet
@@ -204,14 +204,18 @@ def main(argv):
         output_types = (tf.float32),
         output_shapes= (tf.TensorShape(model_input_shape)))
 
-    predictionset = predictionset_raw.map(preprocess_dataset).batch(batch_size).prefetch(1)
+    predictionset = predictionset_raw.map(preprocess_dataset).batch(batch_size).prefetch(2)
 
     #%% 
     # Counter variable over all tiles
     tile = 0 
     progress_bar = tqdm(desc='Tiles processed', total = len(tiler))
+
+    dataset_iterator = iter(predictionset) # create an iterator on the tf dataset
+
     while tile < len(tiler):
-        batch = unet.predict(predictionset, steps = 1) # predict one batch
+        inp = next(dataset_iterator)
+        batch = unet.predict(inp) # predict one batch
 
         # Reduce the channel dimension to binary or pseudoprobability
         if(binary):
