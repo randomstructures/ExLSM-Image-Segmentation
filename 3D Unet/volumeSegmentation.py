@@ -10,7 +10,7 @@ module_path = '../tools/'
 ##IMAGE I/O
 # Specify the path to the image volume stored as h5 file
 #image_path = '/nrs/dickson/lillvis/temp/linus/Unet_Evaluation/RegionCrops/Q1.h5'
-image_path = 'D:/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
+image_path = '/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
 
 # Specify the group name of the image channel
 image_channel_key = 't0/channel1'
@@ -18,16 +18,16 @@ image_channel_key = 't0/channel1'
 # Specify the file name and the group name under which the segmentation output should be saved (this can also be the input file to which a new dataset is added)
 #output_directory = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/"
 #output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
-output_directory = "D:/Janelia/UnetTraining/test/" # directory for report files
-output_path = "D:/Janelia/UnetTraining/test/test.h5" # path to the output file (h5)
-output_channel_key = 't0/test1'
+output_directory = "/mnt/d/Janelia/UnetTraining/test/" # directory for report files
+output_path = "/mnt/d/Janelia/UnetTraining/test/test.h5" # path to the output file (h5)
+output_channel_key = 't0/test3'
 # Specify wheter to output a binary segmentation mask or an object probability map
 binary = False
 
 ## Model File 
 # Specify the path to the pretrained model file
 #model_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201105_Occlusions/train1/occluded50.h5'
-model_path = 'D:/Janelia/UnetTraining/20201030_Preprocessing2/pp2_train150.h5'
+model_path = '/mnt/d/Janelia/UnetTraining/20201030_Preprocessing2/pp2_train150.h5'
 
 
 model_input_shape = (220,220,220)
@@ -116,10 +116,11 @@ def main(argv):
     #%% Check if this file has been invoked with command line arguments specifying a subvolume to work on
     work_on_subvolume = False
     location = []
+    image_shape = [] # shape of the entire dataset
     scalingFactor = None # Holds a precomputed scaling value if it has allready been calculated
     #%%
     try:
-        options, remainder = getopt.getopt(argv, "l:", ["location=","scaling="])
+        options, remainder = getopt.getopt(argv, "l:", ["location=","scaling=","image_shape="])
     except Exception as e:
         print("ERROR:", sys.exc_info()[0]) 
         print(e)
@@ -137,11 +138,23 @@ def main(argv):
         if opt in ('--scaling'):
             scalingFactor = float(arg)
             print('Scaling image by precomputed factor of ' + str(scalingFactor))
+        if opt in ('--image_shape'):
+            image_shape.append(arg.split(","))
+            image_shape = tuple(map(int, image_shape[0]))
+            assert len(image_shape) == 3, 'There must be 3 coordinates that define image shape'
+            print("working on dataset of total shape: " + str(image_shape))
 
     #%%
     # Load image or image subvolume into working memory
     if(work_on_subvolume):
+        tiling_area = np.array((location[0],location[2],location[4],location[1],location[3],location[5])) # x0,x1,y0,y1,z0,z1 -> x0,y0,z0,x1,y1,z1
+        # Create a tiling of the subvolume using absolute coordinates
+        tiling = tilingStrategy.AbsoluteUnetTiling(image_shape, tiling_area, model_output_shape, model_input_shape)
+        # Load the input area required to evaluate the input tiles of the subvolume tiling
+        aabb = tiling.input_area # x0,y0,z0,x1,y1,z1
+        input_slice = (aabb[0],aabb[3],aabb[1],aabb[4],aabb[2],aabb[5]) # x0,y0,z0,x1,y1,z1 -> x0,x1,y0,y1,z0,z1
         image = parallel_hdf5_read(image_path, image_channel_key, location)
+        
     else:
         print('Opening hdf5 file ' + image_path)
         image_h5 = h5py.File(image_path, mode='r+') # Open h5 file with read / write access
@@ -151,7 +164,7 @@ def main(argv):
         # Close image dataset
         image_h5.close()
 
-
+    #%%
     # Calculate scaling factor from image data if no predefined value was given
     if scalingFactor is None: 
         scalingFactor = preProcessing.calculateScalingFactor(image, output_directory=output_directory, filename='mws_test')
@@ -170,9 +183,16 @@ def main(argv):
 
     print('The unet works with\ninput shape {}\noutput shape {}'.format(unet.input.shape,unet.output.shape))
 
-    # Set up a unet tiler for the input image
-    # with mask = None, a new array with the same size as the image is allocated by the UnetTiler3D class
-    tiler = tilingStrategy.UnetTiler3D(image, mask=None, output_shape=model_output_shape, input_shape=model_input_shape)
+    #%%
+    if(work_on_subvolume):
+        # Create an absolute Canvas from the input region
+        input_canvas = tilingStrategy.AbsoluteCanvas(image_shape, tiling_area, image)
+        # Create the unet tiler instance
+        tiler = tilingStrategy.AbsoluteUnetTiler3D(tiling, input_canvas, mask=None)
+    else:
+        # Set up a unet tiler for the input image
+        # with mask = None, a new array with the same size as the image is allocated by the UnetTiler3D class
+        tiler = tilingStrategy.UnetTiler3D(image, mask=None, output_shape=model_output_shape, input_shape=model_input_shape)
 
 
     #%% Perform segmentation
@@ -257,9 +277,6 @@ def main(argv):
             output_h5.create_dataset(output_channel_key, data=tiler.mask.image, dtype=np.float32)
 
         output_h5.close()
-
-
-
 
 # %%
 if __name__ == "__main__":

@@ -52,6 +52,7 @@ def calculateScalingFactor(x, output_directory = None, filename = None):
     # Calculate scaling factor
     b_target = -np.log(10)/0.5 # EMPIRICAL Probability should reduce to 1/10th after 0.5 intensity units to get an intensity distribution within [0,1]
     scaling_factor = huber.coef_[0]/b_target
+    print('scaling intensity values by ' + str(scaling_factor))
 
     if not output_directory is None:
         assert not filename is None, 'Specify a file name'
@@ -65,21 +66,26 @@ def calculateScalingFactor(x, output_directory = None, filename = None):
         plt.title('Approximation of Intensity Counts by Exponential Distribution\n' + filename + ' log(P(I)) = ' + str(huber.coef_[0]) + ' *I+ ' + str(huber.intercept_))
         plt.savefig(output_directory + 'region_'+filename+'_expFit.png')
 
-        # Show scaled intensity distribution
-        plt.figure()
-        plt.hist(x.reshape(-1,1), bins = 500, range=[0,2], log=True)
-        plt.xlabel('log(Counts)')
-        plt.ylabel('Pixel Intensity')
-        plt.title('Adjusted intensity distribution for region ' + filename)
-        plt.savefig(output_directory + 'region_'+filename+'_scaled.png')
+        
 
     return scaling_factor
 
-def scaleImage(x, scaling_factor):
+def scaleImage(x, scaling_factor, output_directory = None, filename = None):
     """Scale the pixel values of an image by a given scaling factor
     """
     x = x.astype(np.float32)
     x *= np.array(scaling_factor)
+
+    if not output_directory is None:
+        assert not filename is None, 'Specify a file name'
+        # Show scaled intensity distribution
+        plt.figure()
+        plt.hist(x.reshape(-1,1), bins = 500, range=[0,2], log=True)
+        plt.ylabel('log(Counts)')
+        plt.xlabel('Adjusted Pixel Intensity')
+        plt.title('Adjusted intensity distribution for region ' + filename)
+        plt.savefig(output_directory + 'region_'+filename+'_scaled.png')
+
     return x
 
 
