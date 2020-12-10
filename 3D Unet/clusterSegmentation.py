@@ -8,7 +8,6 @@ Linus Meienberg
 import sys
 import subprocess
 import numpy as np
-import random
 #import z5py
 import h5py
 
@@ -58,7 +57,7 @@ if(precalculateScalingFactor):
         return image[tile[0]:tile[1], tile[2]:tile[3], tile[4]:tile[5]]
 
     indices = np.arange(len(tiling))
-    subset = random.choices(indices, k=n_tiles)
+    subset = np.random.choice(indices, replace=False, size=n_tiles)
     sf = [preProcessing.calculateScalingFactor(getTile(image, tiling.getTile(index)), output_directory=output_directory, filename='fit'+str(index)) for index in subset]
     mean_sf = np.mean(sf)
     print('tile-wise scaling factor' + str(sf))
