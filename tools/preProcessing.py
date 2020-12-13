@@ -52,7 +52,7 @@ def calculateScalingFactor(x, output_directory = None, filename = None):
     # Calculate scaling factor
     b_target = -np.log(10)/0.5 # EMPIRICAL Probability should reduce to 1/10th after 0.5 intensity units to get an intensity distribution within [0,1]
     scaling_factor = huber.coef_[0]/b_target
-    print('scaling intensity values by ' + str(scaling_factor))
+    #print('scaling intensity values by ' + str(scaling_factor))
 
     if not output_directory is None:
         assert not filename is None, 'Specify a file name'
