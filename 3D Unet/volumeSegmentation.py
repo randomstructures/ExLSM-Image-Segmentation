@@ -36,7 +36,7 @@ batch_size = 1 # Tune batch size to speed up computation.
 
 
 # Specify wheter to run the postprocessing function on the segmentation ouput
-watershed_postprocessing = False
+postprocessing = False
 
 
 #%% Imports 
@@ -149,6 +149,8 @@ def main(argv):
     if(work_on_subvolume):
         tiling_area = np.array((location[0],location[2],location[4],location[1],location[3],location[5])) # x0,x1,y0,y1,z0,z1 -> x0,y0,z0,x1,y1,z1
         # Create a tiling of the subvolume using absolute coordinates
+        print("tiling area " + str(tiling_area))
+        print("image_shape " + str(image_shape))
         tiling = tilingStrategy.AbsoluteUnetTiling(image_shape, tiling_area, model_output_shape, model_input_shape)
         # Load the input area required to evaluate the input tiles of the subvolume tiling
         aabb = tiling.input_area # x0,y0,z0,x1,y1,z1
@@ -252,8 +254,8 @@ def main(argv):
 
 
     # Apply post Processing globaly
-    if(watershed_postprocessing):
-        tiler.mask.image = postProcessing.clean_watershed(tiler.mask.image, high_confidence_threshold=0.98, low_confidence_threshold=0.2)
+    if(postprocessing):
+        postProcessing.clean_floodFill(tiler.mask.image, high_confidence_threshold=0.98, low_confidence_threshold=0.2)
 
     #%% Save segmentation result
 

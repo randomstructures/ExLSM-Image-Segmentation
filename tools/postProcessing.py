@@ -11,7 +11,7 @@ import skimage.segmentation
 import skimage.measure
 from tqdm import tqdm
 
-
+#%%
 def clean_watershed(probability_map: np.ndarray, high_confidence_threshold = 0.98, low_confidence_threshold = 0.2):
     """This method generates a 'cleaned' segmentation mask from a probability map. It is assumed that a single object is present in the image together with some disconnected fragments that should be ignored.
     In a first step, high probability regions are taken as a seed point from which the foreground region is expanded by scikit-image's watershed algorithm.
@@ -61,8 +61,11 @@ def clean_floodFill(probability_map: np.ndarray, high_confidence_threshold = 0.9
     # From this point on we no longer need the high confidence mask or the label mask
     del high_confidence
     del labels
-    centroids = [(int(region_stats[i].centroid[0]),int(region_stats[i].centroid[1]),int(region_stats[i].centroid[2]))
-                 for i in range(num)]  # read centroid coords and convert to int
+    # The centroids of the regions can lie outside of the region itself!
+    # Use an arbitrary point belonging to the region instead
+    #centroids = [(int(region_stats[i].centroid[0]),int(region_stats[i].centroid[1]),int(region_stats[i].centroid[2]))
+    #             for i in range(num)]  # read centroid coords and convert to int
+    seedpoints = [tuple(region.coords[0,:]) for region in region_stats] # take coordinates of the first point in each region
     # From this point on we no longer need the region stats
     del region_stats
 
@@ -73,9 +76,9 @@ def clean_floodFill(probability_map: np.ndarray, high_confidence_threshold = 0.9
     fill_value = 2 # int value used to label area reached by flood fill
     for label in tqdm(range(num), desc="Cleaning Segmentation Result (FloodFill)"):
         # test if seed point has allready been reached
-        if low_confidence[centroids[label]] != fill_value:
+        if low_confidence[seedpoints[label]] != fill_value:
             #print('Performing flood fill for label {}'.format(label))
-            skimage.morphology.flood_fill(low_confidence, centroids[label], new_value=fill_value, in_place=True)
+            skimage.morphology.flood_fill(low_confidence, seedpoints[label], new_value=fill_value, in_place=True)
         #else:
             #print('label {} has allready been reached by flood')
     
@@ -83,11 +86,23 @@ def clean_floodFill(probability_map: np.ndarray, high_confidence_threshold = 0.9
     probability_map[np.invert(cleaned_mask)] = 0 # Set values outside mask to 0
     return probability_map
 
-#%% Test code
-import h5py
-infile = h5py.File('D:\\Janelia\\UnetTraining\\20201105_Occlusions\\Q1_seg.h5')
-print(infile['t0'].keys())
-proba = infile['t0/train1_epoch50']
+#%% Debug code
+
+infile = h5py.File('D:/Janelia/UnetTraining/20201105_Occlusions/Q1_seg.h5')
+print(list(infile['t0'].keys()))
+data = infile['t0/train1_epoch50']
+data.shape
 # %%
-probability_map = proba
+watershed = clean_watershed(np.array(data))
+#%%
+infile.create_dataset(name="t0/watershed", data = watershed)
+#%%
+ffill = np.array(data)
+#%%
+clean_floodFill(ffill)
+
+# %%
+infile.create_dataset(name='t0/ffill_fix', data=ffill)
+# %%
+infile.close()
 # %%

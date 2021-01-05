@@ -1,3 +1,5 @@
 {
-    "python.pythonPath": "C:\\Users\\Linus Meienberg\\anaconda3\\envs\\MLGPU\\python.exe"
+    "python.pythonPath": "C:\\Users\\Linus Meienberg\\anaconda3\\envs\\MLGPU\\python.exe",
+    "python.formatting.provider": "yapf",
+    "jupyter.jupyterServerType": "local"
 }
