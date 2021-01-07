@@ -4,18 +4,18 @@
 #%% Input Ouput loctions
 #TODO add custom modules to path
 module_path = '..\\'
-training_dataset_path = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\gapFilled_0923.h5'
-save_dir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20201105_ExpandedTraining\\'
-model_file_name = 'expanded'
+training_dataset_path = 'D:\\Janelia\\test\\testset.h5'
+save_dir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20210107_ImproveDataAugumentation\\'
+model_file_name = 'varied'
 
 #%% Architecture Parameters
 #bottleneck_dropout_rate = 0.3
 initial_filters = 1 # the number of filter maps in the first convolution operation
 
 # ATTENTION these parameters are not freely changable -> CNN arithmetics
-n_blocks = 3 # the number of Unet downsample/upsample blocks
+n_blocks = 2 # the number of Unet downsample/upsample blocks
 input_size = (220,220,220) # Input size of the unet. Attention: needs to be compatible with training data library
-output_size = (36,36,36) # Ouput size of the unet. This is a function of the input size and network architecture.
+output_size = (132,132,132) # Ouput size of the unet. This is a function of the input size and network architecture.
 
 # Size of examples in the training library
 library_size = (220,220,220)
@@ -28,7 +28,7 @@ elasticDeformation = False
 occlusions = True
 
 occlusion_size = 40 # side length of occuled cubes in training examples
-n_epochs = 15 # number of epochs to train the model
+n_epochs = 1 # number of epochs to train the model
 object_class_weight = 5 # factor by which pixels showing the neuron are multiplied in the loss function
 dice_weight = 0.3 # contribution of dice loss (rest is cce)
 batch_size = 1
@@ -52,6 +52,9 @@ import metrics
 import model
 import utilities
 import Dataset3D
+
+# Use external library for data augumentation
+import elasticdeform
 
 
 # Perform dark GPU MAGIK
@@ -106,12 +109,34 @@ def occlude(x,y):
     x,y = utilities.tf_occlude(x, y, occlusion_size = occlusion_size)
     return x,y
 
+def random_elastic_deform(x, y):
+    # create a 5x5x5 grid of random displacement vectors
+    x,y = elasticdeform.deform_random_grid([x,y], sigma=4, points=(5,5,5))
+    return x,y
+
+def tf_random_elastic_deform(image: tf.Tensor, mask: tf.Tensor):
+    image_shape = image.shape
+    mask_shape = mask.shape
+    image, mask = tf.numpy_function(random_elastic_deform,
+                                    inp=[image,mask],
+                                    Tout=(tf.float32,tf.int32))
+    image.set_shape(image_shape)
+    mask.set_shape(mask_shape)
+    return image, mask
+
+#%%
 # chain dataset transformations to construct the input pipeline for training
+
+# apply elastic deformations to raw dataset before expanding dimensions
+if elasticDeformation:
+    #trainingset = trainingset.map(utilities.tf_elastic)
+    trainingset_raw = trainingset_raw.map(tf_random_elastic_deform)
+# expand dimensions of image and masl
 trainingset = trainingset_raw.map(preprocess)
+# apply affine transformations
 if affineTransform:
     trainingset = trainingset.map(utilities.tf_affine)
-if elasticDeformation:
-    trainingset = trainingset.map(utilities.tf_elastic)
+# apply occlusions
 if occlusions:
     trainingset = trainingset.map(occlude)
 
@@ -130,7 +155,7 @@ unet.compile(
 #%% Train
 history = unet.fit(trainingset, epochs=n_epochs,
                    validation_data= testset,
-                   verbose=2,
+                   verbose=1,
                    callbacks=[tf.keras.callbacks.ModelCheckpoint(save_dir+model_file_name+'{epoch}.h5', # Name of checkpoint file
                                                                  #save_best_only=True, # Wheter to save each epoch or only the best model according to a metric
                                                                  #monitor='val_meanIoU', # Which quantity should be used for model selection
@@ -175,4 +200,15 @@ plt.legend(['training', 'validation'])
 plt.savefig(save_dir+'iou.png')
 
 
-#%% Tidy up
+#%% Save some image mask pairs for visual inspection
+if(True):
+    import itertools
+    import imageio
+    tds = iter(trainingset)
+    for i in range(5):
+        x,y = next(tds)
+        imageio.volsave(save_dir+"image"+str(i)+".tif", x.numpy()[0,...,0])
+        y = y.numpy()[0,...,1] # extract foreground map and pad to original size
+        imageio.volsave(save_dir+"mask"+str(i)+".tif", np.pad(y, (44,44)) )
+
+# %%
