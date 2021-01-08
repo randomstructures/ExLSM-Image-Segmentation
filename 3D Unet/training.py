@@ -11,6 +11,9 @@ model_file_name = 'varied'
 #%% Architecture Parameters
 #bottleneck_dropout_rate = 0.3
 initial_filters = 1 # the number of filter maps in the first convolution operation
+bottleneckDropoutRate = 0.2
+spatialDropout = True
+spatialDropoutRate = 0.2
 
 # ATTENTION these parameters are not freely changable -> CNN arithmetics
 n_blocks = 2 # the number of Unet downsample/upsample blocks
@@ -144,7 +147,12 @@ trainingset = trainingset.batch(batch_size).map(crop_mask).prefetch(1)
 testset = testset_raw.map(preprocess).batch(batch_size).map(crop_mask).prefetch(1)
 
 #%% Construct model
-unet = model.build_unet(input_shape = input_size +(1,), n_blocks=n_blocks, initial_filters=initial_filters)
+unet = model.build_unet(input_shape = input_size +(1,),
+                        n_blocks=n_blocks,
+                        initial_filters=initial_filters,
+                        bottleneckDropoutRate=bottleneckDropoutRate,
+                        spatialDropout=spatialDropout,
+                        spatialDropoutRate=spatialDropoutRate)
 #%% Setup Training
 unet.compile(
     optimizer = tf.keras.optimizers.Adam(),

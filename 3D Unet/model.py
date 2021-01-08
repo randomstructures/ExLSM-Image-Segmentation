@@ -68,7 +68,7 @@ class Unet(tf.keras.Model):
 
 #%% construct model via sequential API
 
-def build_unet(input_shape, n_blocks= 2, initial_filters= 32, useSoftmax=False, **kwargs):
+def build_unet(input_shape, n_blocks= 2, initial_filters= 32, useSoftmax=False, bottleneckDropoutRate=0.2, spatialDropout=False, spatialDropoutRate = 0.2, **kwargs):
     # Create a placeholder for the data that will be fed to the model
     inputs = tf.keras.layers.Input(shape=input_shape)
     x = inputs
@@ -83,11 +83,13 @@ def build_unet(input_shape, n_blocks= 2, initial_filters= 32, useSoftmax=False, 
     filters *= 2 # filters are doubled in second conv operation
     
     for index in range(n_blocks):
-        x, residual = DownsampleBlock(filters=filters, index=index+1)(x)
+        x, residual = DownsampleBlock(filters=filters, index=index+1,
+                                    spatialDropout=spatialDropout,
+                                    spatialDropoutRate=spatialDropoutRate )(x)
         skips.append(residual)
         filters *= 2  # filters are doubled in second conv operation
 
-    x = BottleneckBlock(filters)(x)
+    x = BottleneckBlock(filters, dropoutRate=bottleneckDropoutRate)(x)
     filters *= 2  # filters are doubled in second conv operation
 
     for index in range(n_blocks)[::-1]:
@@ -188,7 +190,7 @@ class DownsampleBlock(tf.keras.layers.Layer):
     Divert output for skip connection.
     Downsample by max pooling for lower level input.
     """
-    def __init__(self, filters, index, **kwargs):
+    def __init__(self, filters, index, spatialDropout=False, spatialDropoutRate=0.2, **kwargs):
         """Unet Downsample Block
 
         Parameters
@@ -197,11 +199,15 @@ class DownsampleBlock(tf.keras.layers.Layer):
             Number of filters in the first convolution
         index : int
             index / depth of the block
+        spatialDropout : wheter to use spatial Dropout (randomly sets entire feature maps to 0)
         """
         super(DownsampleBlock,self).__init__(**kwargs)
         with tf.name_scope('downsample_block_{}'.format(index)):
             self.index = index
             self.filters = filters
+            self.spatialDropout = spatialDropout
+            if spatialDropout:
+                self.spatialDropout = tf.keras.layers.SpatialDropout3D(rate=spatialDropoutRate)
             self.conv1 = tf.keras.layers.Conv3D(filters=filters,
                                         kernel_size = (3,3,3),
                                         activation=tf.nn.relu)
@@ -211,7 +217,12 @@ class DownsampleBlock(tf.keras.layers.Layer):
             self.maxpool = tf.keras.layers.MaxPool3D(pool_size=(2,2,2), strides = (2,2,2))
 
     def call(self, inputs):
-        x = self.conv1(inputs)
+        x = inputs
+        if self.spatialDropout:
+            x = self.spatialDropout(x)
+        x = self.conv1(x)
+        if self.spatialDropout:
+            x = self.spatialDropout(x)
         x = self.conv2(x)
         out = self.maxpool(x)
         return out, x
@@ -227,7 +238,7 @@ class BottleneckBlock(tf.keras.layers.Layer):
     Perform two unpadded convolutions before upsampling to begin the reconstructing pathway
     Include a Dropout layer for training the network
     """
-    def __init__(self, filters, **kwargs):
+    def __init__(self, filters, dropoutRate=0.2, **kwargs):
         """Unet Bottleneck Block
 
         Parameters
@@ -244,7 +255,7 @@ class BottleneckBlock(tf.keras.layers.Layer):
             self.conv2 = tf.keras.layers.Conv3D(filters=filters*2,
                                         kernel_size = (3,3,3),
                                         activation=tf.nn.relu)
-            self.dropout = tf.keras.layers.Dropout(rate=0.2)
+            self.dropout = tf.keras.layers.Dropout(rate=dropoutRate)
             self.upsample = tf.keras.layers.Conv3DTranspose(filters=filters*2,
                                                             kernel_size = (2,2,2),
                                                             strides= (2,2,2))
