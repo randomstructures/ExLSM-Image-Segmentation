@@ -70,8 +70,8 @@ mask['B1'] = regions_h5[2]['t0/channel2']
 # The following function will be applied globaly PER REGION to normalize the image data
 # Neural Networks rely on normalized image data (eg pixel values roughly in [-1,1] and comparable between specimens)
 # WARNING Once a network has been trained on input that has been preprocessed by a certain preprocessing function, all the input to the network has to be preprocess in the same way !!!
-def preprocessImage(x):
-    sf = preProcessing.calculateScalingFactor(x)
+def preprocessImage(x, logfilename=""):
+    sf = preProcessing.calculateScalingFactor(x, output_directory=output_directory, filename=logfilename)
     x = preProcessing.scaleImage(x, sf)
     return x
 
@@ -104,7 +104,7 @@ dataset = Dataset3D.Dataset(dataset_path)
 print('preexisting keys : {}'.format(list(dataset.keys())))
 
 # Handle Regions one by one
-for region in regions[:1]:
+for region in regions:
     print('Processing Region '+region)
     im = image[region][...] # load image channel numpy array into working memory
     msk = mask[region][...] # load mask channel numpy array into working memory
@@ -127,7 +127,7 @@ for region in regions[:1]:
 
     # Apply preprocessing to the image and mask arrays (copy in working memory)
     #im = preprocessImage( im, mean, std )
-    im = preprocessImage( im )
+    im = preprocessImage( im, logfilename= region)
     msk  = preprocessMask( msk )
 
     #########################################################
