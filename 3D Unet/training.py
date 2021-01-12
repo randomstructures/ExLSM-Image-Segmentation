@@ -9,7 +9,7 @@ save_dir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20210107_ImproveDat
 model_file_name = 'varied'
 
 #%% Architecture Parameters
-#bottleneck_dropout_rate = 0.3
+
 initial_filters = 1 # the number of filter maps in the first convolution operation
 bottleneckDropoutRate = 0.2
 spatialDropout = True
@@ -27,10 +27,10 @@ library_size = (220,220,220)
 test_fraction = 0.2 # fraction of training examples that are set aside in the validation set
 
 affineTransform = True 
-elasticDeformation = False
+elasticDeformation = True
 occlusions = True
-
 occlusion_size = 40 # side length of occuled cubes in training examples
+
 n_epochs = 1 # number of epochs to train the model
 object_class_weight = 5 # factor by which pixels showing the neuron are multiplied in the loss function
 dice_weight = 0.3 # contribution of dice loss (rest is cce)
@@ -133,18 +133,20 @@ def tf_random_elastic_deform(image: tf.Tensor, mask: tf.Tensor):
 # apply elastic deformations to raw dataset before expanding dimensions
 if elasticDeformation:
     #trainingset = trainingset.map(utilities.tf_elastic)
-    trainingset_raw = trainingset_raw.map(tf_random_elastic_deform)
+    # set the number of parallel calls to a value suitable for your machine (probably the number of logical processors)
+    trainingset_raw = trainingset_raw.map(tf_random_elastic_deform, num_parallel_calls=9)
 # expand dimensions of image and masl
 trainingset = trainingset_raw.map(preprocess)
 # apply affine transformations
 if affineTransform:
     trainingset = trainingset.map(utilities.tf_affine)
+
 # apply occlusions
 if occlusions:
     trainingset = trainingset.map(occlude)
 
-trainingset = trainingset.batch(batch_size).map(crop_mask).prefetch(1)
-testset = testset_raw.map(preprocess).batch(batch_size).map(crop_mask).prefetch(1)
+trainingset = trainingset.batch(batch_size).map(crop_mask).prefetch(5)
+testset = testset_raw.map(preprocess).batch(batch_size).map(crop_mask).prefetch(5)
 
 #%% Construct model
 unet = model.build_unet(input_shape = input_size +(1,),
@@ -209,7 +211,7 @@ plt.savefig(save_dir+'iou.png')
 
 
 #%% Save some image mask pairs for visual inspection
-if(True):
+if(False):
     import itertools
     import imageio
     tds = iter(trainingset)
