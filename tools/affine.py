@@ -10,69 +10,14 @@ June 2020
 import math
 import numpy as np 
 from scipy import ndimage
+import scipy.spatial.transform
 
 
-# %%
-
-
-def s(x):
-    return math.sin(x)
-def c(x):
-    return math.cos(x)
-
-# r_z : rotation around z axis by angle x in [0,2Pi]
-def R_z(x):
-    return np.array(
-            [[c(x), -s(x), 0],
-            [s(x), c(x),  0],
-            [   0,    0,   1]])
-# r_x : rotation around x axis by angle x in [0, Pi]
-def R_x(x):
-    return np.array(
-            [[   1,    0,  0],
-            [   0, c(x),-s(x)],
-            [   0, s(x), c(x)]])
-
-
-def constructRotationMatrix(alpha, beta, gamma):
-    """Construct a three dimensional rotation matrix described by three euler angles in active xzx convention
-
-    Parameters
-    ----------
-    alpha, beta, gamma : float
-        euler angles specifiying 3D rotation
-    
-    Returns
-    -------
-    numpy array
-        Matrix with shape (3,3) describing the spatial rotation.
+def getRandomRotation()->np.array:
+    """Return a uniformly sampled 3D rotation in (3,3) matrix form.
     """
-    # Construct a general rotation matrix by composition of three elementary rotations
-    # see Wikipedia (https://de.wikipedia.org/wiki/Eulersche_Winkel) Abbildungsmatrix aktive Drehung
-
-    assert (alpha>=0) & (beta>=0) & (gamma>=0), 'specify nonnegative euler angles' 
-
-    rzgamma = R_z(gamma)
-    rxbeta = R_x(beta)
-    rzalpha = R_z(alpha)
-    r = np.matmul(rzalpha, np.matmul(rxbeta, rzgamma))
-    return r
-
-# %%
-
-def getRandomRotation():
-    """Constructs the transformation matrix of a random spatial rotation.
-
-    Returns
-    -------
-    numpy array
-        Matrix with shape (3,3) describing the spatial rotation. 
-    """
-    alpha = np.random.uniform() * 2 * math.pi
-    beta = np.random.uniform() * 1 * math.pi
-    gamma = np.random.uniform() * 2 * math.pi
-    #print((alpha,beta,gamma))
-    return constructRotationMatrix(alpha, beta, gamma)
+    rot = scipy.spatial.transform.Rotation.random() # Draw a uniformly random rotation
+    return rot.as_matrix() # Return the rotation in matrix form
 
 # %%
 def constructScalingMatrix(scaling_factor):
@@ -91,6 +36,7 @@ def constructScalingMatrix(scaling_factor):
     return np.eye(3)*scaling_factor
 
 def getRandomScaling(lb=0.9, ub=1.1):
+    # Note that volumetric scaling range is given by [lb**3,ub**3]
     scaling = np.random.uniform(lb,ub)
     return constructScalingMatrix(scaling)
 
@@ -150,25 +96,3 @@ def applyAffineTransformation(image, transformation_matrix, interpolation_order 
 
 
 
-# %%
-"""
-import tensorflow as tf
-
-im = tf.keras.preprocessing.image.load_img('cato.png')
-im = tf.keras.preprocessing.image.img_to_array(im)
-
-def _rot2D(a):
-    return [[math.cos(a), -math.sin(a)],
-            [math.sin(a), math.cos(a)]]
-
-rot = _rot2D(1)
-im_rot = np.zeros_like(im)
-
-center = [dim//2 for dim in im.shape[:-1]]
-center_mapping = np.dot(rot, center)
-center_shift = center-center_mapping
-
-for c in range(im.shape[-1]):
-    im_rot[...,c] = ndimage.affine_transform(im[...,c], rot, offset=center_shift)
-"""
-# %%
