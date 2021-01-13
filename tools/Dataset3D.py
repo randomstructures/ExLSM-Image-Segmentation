@@ -119,7 +119,7 @@ class Dataset():
             -mask b
     """
 
-    def __init__(self, dataset_path, append=True):
+    def __init__(self, dataset_path, append=True, readonly=False):
         """Instantiate a Dataset class linked to the repository specified in the dataset path
 
         Parameters
@@ -127,16 +127,25 @@ class Dataset():
         dataset_path : str
             repository location
         append : bool, optional
-            wheter to append to a preexisting file, by default True
+            whether to append to a preexisting file, by default True
+        readonly : bool, optional
+            whether to open file in readonly mode
         """
+        if readonly:
+            assert not append, "cannot append in readonly mode"
         super().__init__()
         if append:
             self.dataset_h5 = h5py.File(dataset_path, mode='a')
+        elif readonly:
+            self.dataset_h5 = h5py.File(dataset_path, mode='r') # open file in read only mode
         else:
             self.dataset_h5 = h5py.File(dataset_path, mode='x') # create new, fail if exists
         # keep track of existing groups
         if len(self.keys())>0:
-            print('Opened dataset with {} preexisting items. Overwriting items with the same name.'.format(len(self.keys())))
+            print('Opened dataset with {} preexisting items.').format(len(self.keys()))
+            if not readonly:
+                print('Overwriting items with the same name.')
+
 
     def __len__(self):
         """Define the length of the dataset as the number of groups it contains
