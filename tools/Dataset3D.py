@@ -142,7 +142,7 @@ class Dataset():
             self.dataset_h5 = h5py.File(dataset_path, mode='x') # create new, fail if exists
         # keep track of existing groups
         if len(self.keys())>0:
-            print('Opened dataset with {} preexisting items.').format(len(self.keys()))
+            print('Opened dataset with {} preexisting items.'.format(len(self.keys())))
             if not readonly:
                 print('Overwriting items with the same name.')
 

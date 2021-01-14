@@ -28,7 +28,7 @@ test_fraction = 0.2 # fraction of training examples that are set aside in the va
 
 affineTransform = True 
 elasticDeformation = True
-occlusions = True
+occlusions = False
 occlusion_size = 40 # side length of occuled cubes in training examples
 
 n_epochs = 1 # number of epochs to train the model
@@ -77,7 +77,7 @@ if gpus:
 #%% Build data input pipeline
 print('loading training dataset')
 #load the training dataset
-dataset = Dataset3D.Dataset(training_dataset_path) # The Dataset3D class handles all file level i/o operations
+dataset = Dataset3D.Dataset(training_dataset_path, append=False, readonly=True) # The Dataset3D class handles all file level i/o operations
 # get a list of all records in the database and shuffle entries
 entries = list(dataset.keys())
 np.random.shuffle(entries)
@@ -114,7 +114,8 @@ def occlude(x,y):
 
 def random_elastic_deform(x, y):
     # create a 5x5x5 grid of random displacement vectors
-    x,y = elasticdeform.deform_random_grid([x,y], sigma=4, points=(5,5,5))
+    x,y = elasticdeform.deform_random_grid([x,y], sigma=4, points=(5,5,5),
+                                            order=[2,0], mode="reflect", prefilter=False) # use order 0 (nearest neigbour interpolation for mask)
     return x,y
 
 def tf_random_elastic_deform(image: tf.Tensor, mask: tf.Tensor):
@@ -134,9 +135,11 @@ def tf_random_elastic_deform(image: tf.Tensor, mask: tf.Tensor):
 if elasticDeformation:
     #trainingset = trainingset.map(utilities.tf_elastic)
     # set the number of parallel calls to a value suitable for your machine (probably the number of logical processors)
-    trainingset_raw = trainingset_raw.map(tf_random_elastic_deform, num_parallel_calls=9)
+    trainingset = trainingset_raw.map(tf_random_elastic_deform)#, num_parallel_calls=9)
+else:
+    trainingset = trainingset_raw # just feed raw dataset into subsequent steps
 # expand dimensions of image and masl
-trainingset = trainingset_raw.map(preprocess)
+trainingset = trainingset.map(preprocess)
 # apply affine transformations
 if affineTransform:
     trainingset = trainingset.map(utilities.tf_affine)
@@ -215,10 +218,20 @@ if(False):
     import itertools
     import imageio
     tds = iter(trainingset)
-    for i in range(5):
+    tds_raw = iter(trainingset_raw)
+    for i in range(3):
         x,y = next(tds)
+        xr, yr = next(tds_raw)
         imageio.volsave(save_dir+"image"+str(i)+".tif", x.numpy()[0,...,0])
         y = y.numpy()[0,...,1] # extract foreground map and pad to original size
         imageio.volsave(save_dir+"mask"+str(i)+".tif", np.pad(y, (44,44)) )
+        imageio.volsave(save_dir+"mask_raw"+str(i)+".tif", yr)
 
+    # Generate test image and apply deformation step manualy
+    ti, tm = utilities.getTestImage(mask_size=(220,220,220), addAxis=False)
+    tid, tmd = random_elastic_deform(ti, tm)
+    imageio.volsave(save_dir+"testimage.tif", ti)
+    imageio.volsave(save_dir+"testmask.tif", tm)
+    imageio.volsave(save_dir+"testimage_deformed.tif", tid)
+    imageio.volsave(save_dir+"testmask_deformed.tif",tmd)
 # %%
