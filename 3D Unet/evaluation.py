@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 
-sys.path.append('../tools')
+sys.path.append('/nrs/dickson/lillvis/temp/linus/GPU_Cluster/modules/')
 import Dataset3D
 import tilingStrategy
 import visualization
@@ -28,29 +28,29 @@ import utilities
 # Set verbosity of script 
 silent = True
 # where to save the evaluation report
-saveDir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20201105_OccludedTraining\\'
+saveDir = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20210112_Augumentation/affine/evaluation/'
 if not os.path.exists(saveDir):
     os.makedirs(saveDir)
 
 # Location of the evaluation datasets
-dataset_path = 'D:\\Janelia\\UnetTraining\\Evaluation\\20200928_eval.h5'
+dataset_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20210112_ThesisExperiments/evaluation_dataset.h5'
 # Number of examples to use for evaluation
-n_val = None
+n_val = 40
 # List of entry keys defining the evaluation subset (overrides) n_val if specified.
-subset = ['R1217', 'Q211', 'R1114', 'Q1209', 'Q1232', 'Q2145', 'R2231', 'R2152', 'Q1120', 'Q1136']
+subset = None
 
 # Location of the pretrained model file
-model_path = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20201105_OccludedTraining\\occluded11.h5'
+model_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20210112_Augumentation/affine/augumentation_affine30.h5'
 
 # visualize evaluation examples once every visualization_fraction instances
-visualization_intervall = 3
+visualization_intervall = 10
 
 # wheter to occlude parts of the image
-occlude = True
+occlude = False
 occlusion_size = 40
 
 # Output size of the unet. (Input size should be compatible with dataset)
-output_shape = (36,36,36)
+output_shape = (132,132,132)
 
 #%% Script Setup
 
@@ -152,7 +152,7 @@ unet = tf.keras.models.load_model(model_path, compile=False,
 
 # Compile the model using dummy values for loss function (evaluation loss is not reported)
 unet.compile(loss = model.weighted_cce_dice_loss(class_weights=[1,5], dice_weight=0.3),
-             metrics=['acc',metrics.MeanIoU(num_classes=2, name='meanIoU')])
+             metrics=['acc', metrics.MeanIoU(num_classes=2, name='meanIoU')])
 
 #%% Evaluate model
 
@@ -163,6 +163,10 @@ eval_report['mean IoU'] = iou
 
 # set up lists to store ground truth and prediction values
 y_true, y_pred = [],[]
+# set up list to hold precision, recall curves
+thresholds = np.linspace(0,1,21)
+precision_curves, recall_curves = [],[]
+auc_scores = []
 # get an new iterator on the validation set
 validationset_iter = iter(validationset)
 for n, (im, msk) in enumerate(validationset_iter):
@@ -173,9 +177,28 @@ for n, (im, msk) in enumerate(validationset_iter):
     y_pred.append(pred.numpy()[0,...,1])
     # get binary y_true from mask
     y_true.append(msk.numpy()[0,...,1])
-    
+
+    # Calculate binary prediction performance on aggregated model output
+    # Doing this every 20 steps limits the amount of RAM used to store y_true / y_pred
+    if (n+1)%20==0 or n+1==n_val:
+        y_true = np.stack(y_true, axis=0)
+        y_pred = np.stack(y_pred, axis=0)
+        batch_precision, batch_recall, batch_thresholds, batch_auc = metrics.precisionRecall(y_true,y_pred)
+        # Extract values at relevant thresholds
+        precision_curve, recall_curve = [],[]
+        for t in thresholds:
+            index = np.sum( batch_thresholds < t )
+            precision_curve.append(batch_precision[index])
+            recall_curve.append(batch_recall[index])
+        # Add curves and auc of batch to list
+        precision_curves.append(precision_curve)
+        recall_curves.append(recall_curve)
+        auc_scores.append(batch_auc)
+        # Clear y_true / y_pred
+        y_true, y_pred = [], []
+
     ## visualize some training examples and the unet ouput
-    if n%visualization_intervall==0:
+    if (n+1)%visualization_intervall==0:
         # set up save path
         savePath = saveDir+'val_{}'.format(n)
         # select tensor slices
@@ -183,7 +206,7 @@ for n, (im, msk) in enumerate(validationset_iter):
         msk = msk.numpy()[0,...,1] # extract fist channel of mask for vis
         pred = pred.numpy()[0,...,1]
         # create visualization
-        visualization.showZSlices(im ,channel=None,vmin=-0.5,vmax=2, n_slices=6, title='Input Image', savePath=savePath+'_0_im.png')
+        visualization.showZSlices(im ,channel=None,vmin=0,vmax=1, n_slices=6, title='Input Image', savePath=savePath+'_0_im.png')
         visualization.showZSlices(msk,channel=None,vmin=0,vmax=1, n_slices=6, title='True Mask', savePath=savePath+'_1_true.png')
         visualization.showZSlices(pred,channel=None,vmin=0,vmax=1, n_slices=6, title='Predicted Mask Pseudoprobability', savePath=savePath+'_2_pred.png')
         mask_overlay = visualization.makeRGBComposite(r=msk[...,np.newaxis], g=pred[...,np.newaxis] ,b=None, gain=1.) # Make an overlay of the true mask (red) and the predicted mask (green)
@@ -192,34 +215,44 @@ for n, (im, msk) in enumerate(validationset_iter):
         #visualization.showZSlices(mask_overlay,n_slices=6, mode='rgb', title='True Mask @red Prediction @green Image @blue')
     printv('evaluated {}/{}'.format(n,n_val)) # give
     
-y_true = np.stack(y_true, axis=0)
-y_pred = np.stack(y_pred, axis=0)
+plt.figure()
+for recall , precision in zip(recall_curves, precision_curves):
+    plt.plot(recall,precision)
+plt.title('Binary Classification Performance on batches')
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.xlim([0,1.01])
+plt.ylim([0,1.01])
+plt.savefig(saveDir+'PrecisionRecallBatch.png')
 
-precision, recall, thresholds, auc = metrics.precisionRecall(y_true,y_pred)
+# Calculate mean curves and mean auc
+recall_mean = np.mean( np.array(recall_curves) , axis = 0)
+precision_mean = np.mean( np.array(precision_curves) , axis = 0)
+auc_mean = np.mean(np.array(auc_scores))
 
 plt.figure()
-plt.plot(recall,precision)
+plt.plot(recall_mean,precision_mean)
 plt.title('Binary Classification Performance')
 plt.xlabel('Recall')
 plt.ylabel('Precision')
 plt.xlim([0,1.01])
 plt.ylim([0,1.01])
-plt.text(0.1,0.1,'roc auc : {}'.format(auc))
+plt.text(0.1,0.1,'roc auc : {}'.format(auc_mean))
 plt.savefig(saveDir+'PrecisionRecall.png')
 
 summary = '\nthreshold precision recall\n'
-for t in np.linspace(0,1,21):
-    index = np.sum( thresholds < t )
-    summary  = summary + '{:.2f} {:.2f} {:.2f}'.format(t,precision[index],recall[index]) + '\n'
+for i,t in enumerate(thresholds):
+    summary  = summary + '{:.2f} {:.2f} {:.2f}'.format(t,precision_mean[i],recall_mean[i]) + '\r\n'
 printv(summary)
 eval_report['binary classification performance'] = summary
+eval_report['mean auc'] = auc_mean
 
 #%% Write evaluation Report
 reportFile = open(saveDir+'report.txt','w')
 
 for key in eval_report.keys():
     reportFile.write(str(key)+' : ')
-    reportFile.write(str(eval_report[key])+'\n')
+    reportFile.write(str(eval_report[key])+'\r\n')
 reportFile.close()
 
 # %%
