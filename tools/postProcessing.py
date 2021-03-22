@@ -72,7 +72,7 @@ def clean_floodFill(probability_map: np.ndarray, high_confidence_threshold = 0.9
      # Threshold at low confidence and set up integer mask
     low_confidence = (probability_map > low_confidence_threshold).astype(np.int)
 
-    # Perform flood filling starting from high proba centroids
+    # Perform flood filling starting from high proba regions
     fill_value = 2 # int value used to label area reached by flood fill
     for label in tqdm(range(num), desc="Cleaning Segmentation Result (FloodFill)"):
         # test if seed point has allready been reached
@@ -86,12 +86,71 @@ def clean_floodFill(probability_map: np.ndarray, high_confidence_threshold = 0.9
     probability_map[np.invert(cleaned_mask)] = 0 # Set values outside mask to 0
     return probability_map
 
+
+#%% Remove small objects
+def removeSmallObjects(image : np.ndarray, probabilityThreshold = 0.2, size_threshold = 2000):
+    """Removes areas of the mask that are smaller than a predefined number of voxels.
+    Only the parts of the mask higher than the probability threshold are detected, measured and removed ! (low p fringes around objects are not cleaned up)
+    Code reused from skimage.remove_small_objects.
+
+    Parameters
+    ----------
+    image : np.ndarray
+        the image tensor
+    size_threshold : int, optional
+        the minimal number of connected voxels, by default 2000
+
+    Returns
+    -------
+    np.ndarray
+        the cleaned up image tensor
+    """
+    regions = skimage.morphology.label(image > probabilityThreshold) # Create labeled regions for all areas exceeding the probability threshold
+    component_sizes = np.bincount(regions.ravel()) # calculate the voxel count of all labeled regions
+    too_small = component_sizes < size_threshold # boolean vector with regions failing threshold
+    too_small_mask = too_small[regions] # binary mask, true for small objects
+    image[too_small_mask] = 0 # set regions to 0
+    return image
+    
+
 #%% Debug code
 
-infile = h5py.File('D:/Janelia/UnetTraining/20201105_Occlusions/Q1_seg.h5')
+if(False):
+    pass
+infile = h5py.File('D:/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5')
 print(list(infile['t0'].keys()))
-data = infile['t0/train1_epoch50']
+#%%
+data = np.array(infile['t0/channel2'])
 data.shape
+#%%
+regions = skimage.morphology.label(data > 0)
+sizes = np.bincount(regions.ravel())
+plt.hist(sizes)
+
+#%% 
+cleaned = clean_floodFill(data)
+regions_cleaned = skimage.morphology.label(cleaned > 0.2)
+sizes_cleaned = np.bincount(regions_cleaned.ravel())
+plt.hist(sizes_cleaned)
+#%%
+del infile['t0/test1cleaned']
+del infile['t0/test1cleanedregions']
+infile.create_dataset(name='t0/test1cleaned', data=cleaned)
+infile.create_dataset(name='t0/test1cleanedregions', data=regions_cleaned, dtype=np.int8)
+
+
+#%%
+filtered = removeSmallObjects(cleaned)
+regions_filtered = skimage.morphology.label(filtered > 0.2)
+sizes_filtered = np.bincount(regions_filtered.ravel())
+plt.hist(sizes_filtered)
+
+#%%
+infile.create_dataset(name='t0/test1filtered', data=filtered)
+#%%
+del infile['t0/test1filteredregions']
+
+infile.create_dataset(name='t0/test1filteredregions', data=regions_filtered, dtype=np.int8)
 # %%
 watershed = clean_watershed(np.array(data))
 #%%
@@ -103,6 +162,17 @@ clean_floodFill(ffill)
 
 # %%
 infile.create_dataset(name='t0/ffill_fix', data=ffill)
+
+#%%
+data = np.array(infile['t0/ffclean']) > 0
+regions = skimage.morphology.label(data)
+infile.create_dataset(name="t0/ffcleanRegions", data = regions)
+
+#%%
+sizes = np.bincount(regions.ravel())
+
+#%%
+data = np.array(infile['t0/ffclean'])
 # %%
 infile.close()
 # %%

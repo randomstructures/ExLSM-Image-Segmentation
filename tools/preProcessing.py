@@ -46,6 +46,7 @@ def calculateScalingFactor(x, output_directory = None, filename = None):
     # Drop all bins with zero count (gives runnaway when taking log counts / not informative)
     mean_bins = mean_bins[np.isfinite(log_counts)]
     log_counts = log_counts[np.isfinite(log_counts)]
+    
     # Instantiate and fit the Huber Regressor
     huber = HuberRegressor() # Use sklearns default values -> fits intercept, epsilon = 1.35, alpha = 1e-4
     huber.fit(mean_bins.reshape(-1,1), log_counts) # sklearn X,y synthax where X is a matrix (samples x observation) and y a vector (samples,) of target values
@@ -58,12 +59,14 @@ def calculateScalingFactor(x, output_directory = None, filename = None):
         assert not filename is None, 'Specify a file name'
         # Show exponential Fit
         plt.figure()
-        plt.scatter(mean_bins, log_counts) # scatter plot histogram data
-        plt.plot(mean_bins,huber.predict(mean_bins.reshape(-1,1)), color = 'green') # line plot huber regressor fit
+        plt.scatter(mean_bins, log_counts, marker='.') # scatter plot histogram data
+        #plt.hist(bins[:-1], bins, weights=log_counts_complete) # Plot precomputed histogram
+        plt.plot(mean_bins,huber.predict(mean_bins.reshape(-1,1)), color = 'red') # line plot huber regressor fit
         plt.ylim([-1,25])
         plt.ylabel('log(Counts)')
         plt.xlabel('Pixel Intensity')
-        plt.title('Approximation of Intensity Counts by Exponential Distribution\n' + filename + ' log(P(I)) = ' + str(huber.coef_[0]) + ' *I+ ' + str(huber.intercept_))
+        plt.legend(['Huber Regression','Counts'])
+        #plt.title('Approximation of Intensity Counts by Exponential Distribution\n' + filename + ' log(P(I)) = ' + str(huber.coef_[0]) + ' *I+ ' + str(huber.intercept_))
         plt.savefig(output_directory + 'region_'+filename+'_expFit.png')
 
         

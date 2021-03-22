@@ -103,8 +103,8 @@ samples_per_region = 50 # How many samples to include per region in the list
 dataset = Dataset3D.Dataset(dataset_path)
 print('preexisting keys : {}'.format(list(dataset.keys())))
 
-# Handle Regions one by one
-for region in regions:
+#%% Handle Regions one by one
+for region in regions[:1]:
     print('Processing Region '+region)
     im = image[region][...] # load image channel numpy array into working memory
     msk = mask[region][...] # load mask channel numpy array into working memory

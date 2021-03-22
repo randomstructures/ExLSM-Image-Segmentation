@@ -1,4 +1,0 @@
-This model was generated using a plain 2D Unet trained on the Oxford Pet Segmentation dataset for 25 epochs.
-Random elastic deformations were applied to the training data.
-
-The net trains nicely using these augumentations and shows now signs of overfitting. (see plot)

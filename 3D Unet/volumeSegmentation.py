@@ -10,7 +10,7 @@ module_path = '../tools/'
 ##IMAGE I/O
 # Specify the path to the image volume stored as h5 file
 #image_path = '/nrs/dickson/lillvis/temp/linus/Unet_Evaluation/RegionCrops/Q1.h5'
-image_path = '/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
+image_path = 'D:/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
 
 # Specify the group name of the image channel
 image_channel_key = 't0/channel1'
@@ -18,16 +18,16 @@ image_channel_key = 't0/channel1'
 # Specify the file name and the group name under which the segmentation output should be saved (this can also be the input file to which a new dataset is added)
 #output_directory = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/"
 #output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
-output_directory = "/mnt/d/Janelia/UnetTraining/test/" # directory for report files
-output_path = "/mnt/d/Janelia/UnetTraining/test/test.h5" # path to the output file (h5)
-output_channel_key = 't0/test3'
+output_directory = "D:/Janelia/UnetTraining/20210222_ModelCapacity/filters_8/" # directory for report files
+output_path = "D:/Janelia/UnetTraining/20210222_ModelCapacity/filters_8/Q1seg.h5" # path to the output file (h5)
+output_channel_key = 't0/filters8_cleaned'
 # Specify wheter to output a binary segmentation mask or an object probability map
 binary = False
 
 ## Model File 
 # Specify the path to the pretrained model file
 #model_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201105_Occlusions/train1/occluded50.h5'
-model_path = '/mnt/d/Janelia/UnetTraining/20201030_Preprocessing2/pp2_train150.h5'
+model_path = 'D:/Janelia/UnetTraining/20210222_ModelCapacity/filters_8/filters_8_50.h5'
 
 
 model_input_shape = (220,220,220)
@@ -36,7 +36,7 @@ batch_size = 1 # Tune batch size to speed up computation.
 
 
 # Specify wheter to run the postprocessing function on the segmentation ouput
-postprocessing = False
+postprocessing = True
 
 
 #%% Imports 
@@ -256,6 +256,7 @@ def main(argv):
     # Apply post Processing globaly
     if(postprocessing):
         postProcessing.clean_floodFill(tiler.mask.image, high_confidence_threshold=0.98, low_confidence_threshold=0.2)
+        postProcessing.removeSmallObjects(tiler.mask.image, probabilityThreshold = 0.2, size_threshold = 2000)
 
     #%% Save segmentation result
 
@@ -283,3 +284,4 @@ def main(argv):
 # %%
 if __name__ == "__main__":
     main(sys.argv[1:])
+# %%

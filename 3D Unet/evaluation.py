@@ -78,7 +78,7 @@ if gpus:
 
 #%% Load evaluation data
 
-dataset = Dataset3D.Dataset(dataset_path) # The Dataset3D class handles all file level i/o operations
+dataset = Dataset3D.Dataset(dataset_path, append = False, readonly=True) # The Dataset3D class handles all file level i/o operations
 printv('Dataset {} contains {} records'.format(dataset, len(dataset)))
 printv('Dataset metadata entries:')
 printv(dataset.getAttributes().keys())
