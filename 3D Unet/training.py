@@ -166,7 +166,9 @@ unet = model.build_unet(input_shape = input_size +(1,),
                         spatialDropoutRate=spatialDropoutRate)
 
 # If we want to resume training load the pretrained model file instead
-unet = tf.keras.models.load_model(pretrained_model_path, custom_objects={"InputBlock" : model.InputBlock,
+if resume_training:
+    print("Resuming training from model file at " + pretrained_model_path)
+    unet = tf.keras.models.load_model(pretrained_model_path, custom_objects={"InputBlock" : model.InputBlock,
                                                     "DownsampleBlock" : model.DownsampleBlock,
                                                     "BottleneckBlock" : model.BottleneckBlock,
                                                     "UpsampleBlock" : model.UpsampleBlock,
