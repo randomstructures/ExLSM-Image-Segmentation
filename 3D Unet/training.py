@@ -5,14 +5,20 @@
 #TODO add custom modules to path
 module_path = '..\\'
 training_dataset_path = 'D:\\Janelia\\test\\testset.h5'
-save_dir = 'D:\\Janelia\\UnetTraining\\GapFilledMaskNetwork\\20210107_ImproveDataAugumentation\\'
-model_file_name = 'varied'
+save_dir = 'D:\\Janelia\\UnetTraining\\20210428_ResumeTraining\\'
+model_file_name = 'resumed'
+
+# OPTIONAL Resume training from an existing model file
+# Ensure that Architecture Parameters are the same as in the pretrained model
+# Training parameters can be changed
+resume_training = True # switch if training should be resumed
+pretrained_model_path = "D:\\Janelia\\UnetTraining\\20210428_ResumeTraining\\initial3.h5" # path to the pretrained model file
 
 #%% Architecture Parameters
 
 initial_filters = 1 # the number of filter maps in the first convolution operation
 bottleneckDropoutRate = 0.2
-spatialDropout = True
+spatialDropout = False
 spatialDropoutRate = 0.2
 
 # ATTENTION these parameters are not freely changable -> CNN arithmetics
@@ -27,11 +33,11 @@ library_size = (220,220,220)
 test_fraction = 0.2 # fraction of training examples that are set aside in the validation set
 
 affineTransform = True 
-elasticDeformation = True
+elasticDeformation = False
 occlusions = False
 occlusion_size = 40 # side length of occuled cubes in training examples
 
-n_epochs = 1 # number of epochs to train the model
+n_epochs = 3 # number of epochs to train the model
 object_class_weight = 5 # factor by which pixels showing the neuron are multiplied in the loss function
 dice_weight = 0.3 # contribution of dice loss (rest is cce)
 batch_size = 1
@@ -158,6 +164,13 @@ unet = model.build_unet(input_shape = input_size +(1,),
                         bottleneckDropoutRate=bottleneckDropoutRate,
                         spatialDropout=spatialDropout,
                         spatialDropoutRate=spatialDropoutRate)
+
+# If we want to resume training load the pretrained model file instead
+unet = tf.keras.models.load_model(pretrained_model_path, custom_objects={"InputBlock" : model.InputBlock,
+                                                    "DownsampleBlock" : model.DownsampleBlock,
+                                                    "BottleneckBlock" : model.BottleneckBlock,
+                                                    "UpsampleBlock" : model.UpsampleBlock,
+                                                    "OutputBlock" : model.OutputBlock}, compile=False)
 #%% Setup Training
 unet.compile(
     optimizer = tf.keras.optimizers.Adam(),
