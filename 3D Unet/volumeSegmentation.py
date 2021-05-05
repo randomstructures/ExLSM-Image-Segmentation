@@ -1,16 +1,37 @@
 """ This script applies a pretrained model file to a large image volume saved in hdf5 format
 """
 
-#%% Script variables
+#%% Imports 
+import sys, getopt
+import random
+import numpy as np 
+import matplotlib.pyplot as plt 
+import tensorflow as tf
+
+import os, sys, time
 
 # The path where custom modules are located
 #module_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/modules/'
 module_path = '../tools/'
 
+sys.path.append(module_path)
+
+import tilingStrategy, metrics
+import utilities, model
+import postProcessing
+import  preProcessing
+
+import h5py
+import z5py
+from tqdm import tqdm
+
+
+#%% Script variables
+
 ##IMAGE I/O
 # Specify the path to the image volume stored as h5 file
 #image_path = '/nrs/dickson/lillvis/temp/linus/Unet_Evaluation/RegionCrops/Q1.h5'
-image_path = 'D:/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
+image_path = os.path.abspath('D:/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5')
 
 # Specify the group name of the image channel
 image_channel_key = 't0/channel1'
@@ -18,9 +39,9 @@ image_channel_key = 't0/channel1'
 # Specify the file name and the group name under which the segmentation output should be saved (this can also be the input file to which a new dataset is added)
 #output_directory = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/"
 #output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
-output_directory = "D:/Janelia/UnetTraining/20210222_ModelCapacity/filters_8/" # directory for report files
-output_path = "D:/Janelia/UnetTraining/20210222_ModelCapacity/filters_8/Q1seg.h5" # path to the output file (h5)
-output_channel_key = 't0/filters8_cleaned'
+output_directory = "D:/Janelia/UnetTraining/20210222_ModelCapacity/test/" # directory for report files
+output_path = "D:/Janelia/UnetTraining/20210222_ModelCapacity/test/Q1seg.n5" # path to the output file 
+output_channel_key = 'test'
 # Specify wheter to output a binary segmentation mask or an object probability map
 binary = False
 
@@ -38,25 +59,9 @@ batch_size = 1 # Tune batch size to speed up computation.
 # Specify wheter to run the postprocessing function on the segmentation ouput
 postprocessing = True
 
-
-#%% Imports 
-import sys, getopt
-import random
-import numpy as np 
-import matplotlib.pyplot as plt 
-import tensorflow as tf
-
-import os, sys, time
-sys.path.append(module_path)
-
-import tilingStrategy, metrics
-import utilities, model
-import postProcessing
-import  preProcessing
-
-import h5py
-from tqdm import tqdm
-
+# Infer file types from file extension
+input_filetype = os.path.splitext(image_path)[1] # should be ".h5" or ".n5" depending on filetype that is read in.
+output_filetype = os.path.splitext(output_path)[1] # should be ".h5" or ".n5" depending in filetype that is written out.
 
 
 #%% Setup
@@ -86,6 +91,17 @@ def parallel_hdf5_read(image_path, image_channel_key, location):
             time.sleep(random.randint(1,5))
     return im
 
+def parallel_n5_read(image_path, image_channel_key, location):
+    read_img = True
+    while read_img:
+        try:
+            with z5py.File(image_path, 'r') as f:
+                im = f[image_channel_key][location[0]:location[1], location[2]:location[3], location[4]:location[5]]
+            read_img = False
+        except OSError:  # If other process is accessing the image, wait 5 seconds to try again
+            time.sleep(random.randint(1,5))
+    return im
+
 def parallel_hdf5_write(im, output_path, output_channel_key, location):
     """
     write an image array into part of the hdf5 image file
@@ -101,6 +117,27 @@ def parallel_hdf5_write(im, output_path, output_channel_key, location):
     while write_img:
         try:
             with h5py.File(output_path, 'r+') as f:
+                f[output_channel_key][location[0]:location[1], location[2]:location[3], location[4]:location[5]] = im
+            write_img = False
+        except OSError: # If other process is accessing the image, wait 5 seconds to try again
+            time.sleep(random.randint(1,5))
+    return None
+
+def parallel_n5_write(im, output_path, output_channel_key, location):
+    """
+    write an image array into part of the hdf5 image file
+    Args:
+    im: an image array
+    output_path: an existing hdf5 file to partly write in
+    output_channel_key: the (absolute) name of the output hdf5 dataset in the file
+    location: a tuple of (x0,x1,y0,y1,z0,z1) indicating what area to write
+    """
+    assert os.path.exists(output_path), \
+        print("ERROR: hdf5 file does not exist!")        
+    write_img = True
+    while write_img:
+        try:
+            with z5py.File(output_path, 'r+') as f:
                 f[output_channel_key][location[0]:location[1], location[2]:location[3], location[4]:location[5]] = im
             write_img = False
         except OSError: # If other process is accessing the image, wait 5 seconds to try again
@@ -155,24 +192,41 @@ def main(argv):
         # Load the input area required to evaluate the input tiles of the subvolume tiling
         aabb = tiling.input_area # x0,y0,z0,x1,y1,z1
         input_slice = (aabb[0],aabb[3],aabb[1],aabb[4],aabb[2],aabb[5]) # x0,y0,z0,x1,y1,z1 -> x0,x1,y0,y1,z0,z1
-        image = parallel_hdf5_read(image_path, image_channel_key, location)
-        
+        if(input_filetype == ".h5"):
+            image = parallel_hdf5_read(image_path, image_channel_key, location)
+        elif(input_filetype == ".n5"):
+            image = parallel_n5_read(  image_path, image_channel_key, location)
+        else:
+            raise(ValueError("Filetype " + input_filetype + " not supported."))
+
+    # If we want to work on the entire input file.    
     else:
-        print('Opening hdf5 file ' + image_path)
-        image_h5 = h5py.File(image_path, mode='r+') # Open h5 file with read / write access
-        print(image_h5.keys()) # Show Groups (Folders) in root Group of the h5 archive
-        image = image_h5[image_channel_key] # Open the image dataset
-        image = image[...] # Copy content to working memory
-        # Close image dataset
-        image_h5.close()
+        if(input_filetype == ".h5"):
+            print('Opening hdf5 file ' + image_path)
+            image_h5 = h5py.File(image_path, mode='r+') # Open h5 file with read / write access
+            print(image_h5.keys()) # Show Groups (Folders) in root Group of the h5 archive
+            image = image_h5[image_channel_key] # Open the image dataset
+            image = image[...] # Copy content to working memory
+            # Close image dataset
+            image_h5.close()
+        elif(input_filetype == ".n5"):
+            print('Opening n5 file ' + image_path)
+            image_n5 = z5py.File(image_path, mode='r+') # Open h5 file with read / write access
+            print(image_n5.keys()) # Show Groups (Folders) in root Group of the h5 archive
+            image = image_n5[image_channel_key] # Open the image dataset
+            image = image[...] # Copy content to working memory
+            # Close image dataset
+            image_n5.close()
+        else:
+            raise(ValueError("Filetype " + input_filetype + " not supported."))
 
     #%%
     # Calculate scaling factor from image data if no predefined value was given
     if scalingFactor is None: 
-        scalingFactor = preProcessing.calculateScalingFactor(image, output_directory=output_directory, filename='mws_test')
+        scalingFactor = preProcessing.calculateScalingFactor(image, output_directory=output_directory, filename='scalingFactor')
 
     # Apply preprocessing globaly !
-    image = preProcessing.scaleImage(image, scalingFactor, output_directory=output_directory, filename='mws_test')
+    image = preProcessing.scaleImage(image, scalingFactor, output_directory=output_directory, filename='scalingFactor')
 
     #%% Load Model File
     # Restore the trained model. Specify where keras can find custom objects that were used to build the unet
@@ -259,27 +313,42 @@ def main(argv):
         postProcessing.removeSmallObjects(tiler.mask.image, probabilityThreshold = 0.2, size_threshold = 2000)
 
     #%% Save segmentation result
-
+    # Parallel writing when working on subvolume
     if(work_on_subvolume):
-        #print('There is a dataset ' + output_channel_key + ' with shape ' + str(list(output_h5[output_channel_key].shape)))
-        #print('and dtype ' + str(output_h5[output_channel_key].dtype))
-        #output_h5[output_channel_key][location[0]:location[1],location[2]:location[3],location[4]:location[5]] = tiler.mask.image # insert the mask slice
-        parallel_hdf5_write(tiler.mask.image, output_path, output_channel_key, location)
-    else:
-        output_h5 = h5py.File(output_path, mode='a') # Open h5 file, create if it does not exist yet
-        print('Segmentation Output is written to ' + output_path + '/' + output_channel_key)
-        if output_channel_key in output_h5:
-            print('overwriting previous data')
-            del output_h5[output_channel_key]
-            
-        if(binary):
-            #mask = output_h5.require_dataset(output_channel_key, shape=image.shape , dtype=np.uint8) # Use integer tensor to save memory
-            output_h5.create_dataset(output_channel_key, data=tiler.mask.image, dtype=np.uint8)
+        if(output_filetype == ".h5"):
+            parallel_hdf5_write(tiler.mask.image, output_path, output_channel_key, location)
+        elif(output_filetype == ".n5"):
+            parallel_n5_write(tiler.mask.image, output_path, output_channel_key, location)
         else:
-            #mask = output_h5.require_dataset(output_channel_key, shape=image.shape, dtype = np.float32)
-            output_h5.create_dataset(output_channel_key, data=tiler.mask.image, dtype=np.float32)
-
-        output_h5.close()
+            raise(ValueError("Filetype " + output_filetype + " not supported."))
+    # Single worker mode
+    else:
+        if(output_filetype == ".h5"):
+            output_h5 = h5py.File(output_path, mode='a') # Open h5 file, create if it does not exist yet
+            print('Segmentation Output is written to ' + output_path + '/' + output_channel_key)
+            if output_channel_key in output_h5:
+                print('overwriting previous data')
+                del output_h5[output_channel_key]
+                
+            if(binary):
+                #mask = output_h5.require_dataset(output_channel_key, shape=image.shape , dtype=np.uint8) # Use integer tensor to save memory
+                output_h5.create_dataset(output_channel_key, data=tiler.mask.image, dtype=np.uint8)
+            else:
+                #mask = output_h5.require_dataset(output_channel_key, shape=image.shape, dtype = np.float32)
+                output_h5.create_dataset(output_channel_key, data=tiler.mask.image, dtype=np.float32)
+            output_h5.close()
+        elif(output_filetype == ".n5"):
+            output_n5 = z5py.File(output_path, mode='a') # Open h5 file, create if it does not exist yet
+            print('Segmentation Output is written to ' + output_path + '/' + output_channel_key)
+            if output_channel_key in output_n5:
+                print('overwriting previous data')
+                del output_n5[output_channel_key]
+                
+            if(binary):
+                output_n5.create_dataset(output_channel_key, data=tiler.mask.image, dtype=np.uint8)
+            else:
+                output_n5.create_dataset(output_channel_key, data=tiler.mask.image, dtype=np.float32)
+            output_n5.close()
 
 # %%
 if __name__ == "__main__":

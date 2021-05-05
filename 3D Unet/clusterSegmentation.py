@@ -5,14 +5,14 @@ Linus Meienberg
 """
 
 #%% Imports
+import os
 import sys
 import subprocess
 import numpy as np
-#import z5py
+import z5py
 import h5py
 
 module_path = '../tools'
-#'/nrs/dickson/lillvis/temp/linus/GPU_Cluster/modules/'
 sys.path.append(module_path)
 
 import tilingStrategy, preProcessing
@@ -21,27 +21,35 @@ import tilingStrategy, preProcessing
 
 ############## Input / Output ####################
 
+
 # path to the input file (h5 or n5 image) where the large image is stored
-dataset_path = '/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
+dataset_path = os.path.abspath("D:/Janelia/UnetTraining/test/A1N5/export.n5")
+#'/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
 #'/nrs/dickson/lillvis/temp/linus/Unet_Evaluation/RegionCrops/Q1.h5'
 
 # path of the input dataset within the file system of the h5 container
-input_key = 't0/channel1'
+input_key = 'setup1/timepoint0/s0'
 #'/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.n5'
 # use z5py for n5 format
 #dataset = z5py.File(dataset_path)
 # use h5py for h5 format
 
 # directory for report files
-output_directory = "/mnt/d/Janelia/UnetTraining/test/" 
+output_directory = "D:\\Janelia\\UnetTraining\\test\\A1N5\\out\\"
+#"/mnt/d/Janelia/UnetTraining/test/" 
 
 # Path to the output file where segmented output is written to
-output_path = "/mnt/d/Janelia/UnetTraining/test/test.h5"
+output_path = "D:\\Janelia\\UnetTraining\\test\\A1N5\\out\\out.h5"
+#"/mnt/d/Janelia/UnetTraining/test/test.h5"
 #"/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
 #"/mnt/d/Janelia/UnetTraining/test.h5"
 
 # path of the output dataset within the file system of the h5 container
-output_key = "t0/test3"
+output_key = "out1"
+
+# Infer file types from file extension
+input_filetype = os.path.splitext(dataset_path)[1] # should be ".h5" or ".n5" depending on filetype that is read in.
+output_filetype = os.path.splitext(output_path)[1] # should be ".h5" or ".n5" depending in filetype that is written out.
 
 
 ############ Job Submission ##############
@@ -50,7 +58,7 @@ job_prefix = 'mseg_'
 
 # Size of the subvolumes delegated to each worker. Ideally this is a multiple of the unet output size
 # The chunk delegated to each worker should fit the available working memory.
-side_length = 132 * 5
+side_length = 132 * 3
 chunk_shape = (side_length,side_length,side_length) 
 
 # Whether to write the segmentation result as a binary mask or foreground probabilities (0-1)
@@ -59,13 +67,21 @@ binary = False
 # The unet requires scaling of the intensities in the input image.
 # The scaling factor can be calculated once by sampling random tiles in the input image or individually for each submitted job
 precalculateScalingFactor = True
-n_tiles = 10 # number of tiles to randomly sample for calculation of the scaling factor
+n_tiles = 18 # number of tiles to randomly sample for calculation of the scaling factor
 
 #%% Open input dataset and define tiling
+if input_filetype == ".h5":
+    dataset = h5py.File(dataset_path, mode='r')
+    image = dataset[input_key]
 
-dataset = h5py.File(dataset_path, mode='r')
-image = dataset[input_key]
-# remember the shape of the image
+elif input_filetype == ".n5":
+    dataset = z5py.File(dataset_path, mode='r',use_zarr_format=False)
+    image = dataset[input_key]
+else:
+    print("filetype " + input_filetype + " is not supported")
+    
+
+#%% remember the shape of the image
 image_shape = image.shape
 
 tiling = tilingStrategy.RectangularTiling(image_shape, chunk_shape=chunk_shape)
@@ -78,8 +94,14 @@ if(precalculateScalingFactor):
 
     indices = np.arange(len(tiling))
     subset = np.random.choice(indices, replace=False, size=n_tiles)
-    sf = [preProcessing.calculateScalingFactor(getTile(image, tiling.getTile(index)), output_directory=output_directory, filename='fit'+str(index)) for index in subset]
-    mean_sf = np.mean(sf)
+    sf = [] # list of scaling factors obtained for individual tiles
+    for index in subset:
+        print("Sampling Tile {}".format(index))
+        sf.append( preProcessing.calculateScalingFactor(
+                      getTile(image, tiling.getTile(index)),
+                      output_directory=output_directory,
+                      filename='fit'+str(index)))
+    mean_sf = np.nanmean(sf)
     print('tile-wise scaling factor' + str(sf))
     print('Precalculated a scaling factor of {} based on {}/{} tiles'.format(mean_sf, n_tiles, len(tiling)))
 
@@ -87,28 +109,34 @@ if(precalculateScalingFactor):
 dataset.close()
 
 
+# %% Allocate a dataset for the segmentation output
+# Handle allocation of a h5 dataset
+if output_filetype == ".h5":
+    output_file = h5py.File(output_path, mode='a') # open in append mode
 
+    if(output_key in output_file): # check if output dataset allready exists
+        print('overwritting existing dataset')
+        del output_file[output_key] # if so delete it
+    # allocate integer or float tensor depending on output format
+    if(binary):
+        output_file.create_dataset(name=output_key, shape=image_shape, dtype=np.uint8)
+    else:
+        output_file.create_dataset(name=output_key, shape=image_shape, dtype=np.float32)
 
-
-# %% Allocate a hdf5 dataset for the segmentation output
-output_file = h5py.File(output_path, mode='a')
-
-if(output_key in output_file):
-    print('overwritting existing dataset')
-    del output_file[output_key]
-
-if(binary):
-    output_file.create_dataset(name=output_key, shape=image_shape, dtype=np.uint8)
-else:
-    output_file.create_dataset(name=output_key, shape=image_shape, dtype=np.float32)
-
-output_file.close()
-
-
+    output_file.close()
+# Handle allocation of a n5 dataset.
+if output_filetype == ".n5":
+    output_file = z5py.File(output_path, mode='a')
+    if(output_key in output_file):
+        print("Overwriting exisiting dataset")
+        del output_file[output_key]
+    
+    if(binary):
+        output_file.create_dataset(name=output_key,shape=image_shape, dtype=np.uint8)
+    else:
+        output_file.create_dataset(name=output_key, shape=image_shape, dtype=np.float32)
 
 # %% Dispatch jobs on subvolumes
-
-
 jobs = []
 for i in range(len(tiling)):
 #for i in range(7,11):
@@ -121,11 +149,13 @@ for i in range(len(tiling)):
     jobname = job_prefix + str(i)
     logfile = jobname + '.log'
 
+    """
     # debug on home desktop
-    #arglist = ['python','volumeSegmentation.py','-l',tile,'--image_shape',imshape,'--scaling',str(mean_sf)]
-    #print(str(arglist))
+    arglist = ['python','volumeSegmentation.py','-l',tile,'--image_shape',imshape,'--scaling',str(mean_sf)]
+    print(str(arglist))
     #jobs.append(subprocess.Popen(arglist))
-
+    """
+    
     # Construct command line argument for janelia's cluster job submission system
     arglist = ['bsub','-J',jobname,'-n','5','-gpu', '\"num=1\"', '-q', 'gpu_rtx', '-o', logfile, 'python', 'volumeSegmentation.py']
     if(precalculateScalingFactor):
@@ -135,7 +165,8 @@ for i in range(len(tiling)):
     print("created job : " + str(arglist))
     jobs.append(
         subprocess.Popen(arglist)
-    )
+    
+        )
 
 
 # %%

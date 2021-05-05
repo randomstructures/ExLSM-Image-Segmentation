@@ -113,6 +113,7 @@ def removeSmallObjects(image : np.ndarray, probabilityThreshold = 0.2, size_thre
     return image
     
 
+"""
 #%% Debug code
 
 if(False):
@@ -176,3 +177,4 @@ data = np.array(infile['t0/ffclean'])
 # %%
 infile.close()
 # %%
+"""

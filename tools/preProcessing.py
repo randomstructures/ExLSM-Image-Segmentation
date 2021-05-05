@@ -35,17 +35,23 @@ def calculateScalingFactor(x, output_directory = None, filename = None):
     Returns
     -------
     float   
-        scaling factor
+        scaling factor. Returns Nan if calculation of scaling factor fails. (eg if only background is present in the image)
     """
     x = x.astype(np.float32)
     # calculate intensity distribution
     counts, bins = np.histogram(x, bins=1000, range=[0,4000]) # EMPIRICAL the majority of intensity values should be within this range for ALL imaged regions!
     # Calculate mean bin value and log counts
     mean_bins = (bins[:-1] + bins[1:])/2
-    log_counts = np.log(counts)
+    log_counts = np.log(counts) 
     # Drop all bins with zero count (gives runnaway when taking log counts / not informative)
     mean_bins = mean_bins[np.isfinite(log_counts)]
     log_counts = log_counts[np.isfinite(log_counts)]
+
+    # If we have only a very small number of bins with observations (e.g. if  all pixels belong to the background)
+    num_obs = len(log_counts)
+    if num_obs < 10:
+        print("not enough observations for inference of scaling factor from histogram slope")
+        return np.nan
     
     # Instantiate and fit the Huber Regressor
     huber = HuberRegressor() # Use sklearns default values -> fits intercept, epsilon = 1.35, alpha = 1e-4
