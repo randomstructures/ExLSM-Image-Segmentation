@@ -54,9 +54,10 @@ import tensorflow as tf
 print(os.getcwd())
 os.makedirs(save_dir, exist_ok=True) # Ensure that output folder for diagnostics is created
 
-sys.path.append(module_path)
+sys.path.append(os.path.abspath(module_path))
+sys.path.append(os.path.abspath(module_path+'/3D Unet/'))
+sys.path.append(os.path.abspath(module_path+'/tools/'))
 
-sys.path.append(module_path+'tools\\')
 import metrics
 import model
 import utilities

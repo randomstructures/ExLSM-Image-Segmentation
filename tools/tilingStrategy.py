@@ -28,6 +28,7 @@ class Tiling(ABC):
     def coordinatesToIndex(self,x,y,z):
         pass
 
+#%%
 class RectangularTiling(Tiling):
     """Divides a volume into 0-alinged chunks
     """
@@ -121,35 +122,53 @@ class UnetTiling3D(Tiling):
     The input volume is tiled with the output shape of the unet. 
     Each output tile is symmetrically expanded to the input shape to get the corresponding input for the unet.
     The tiles are ennumerated internally and can be accessed either by their coordinates in the rectangular tiling or their index.
+
+    If desired a subvolume can be specified within the image volume. The resulting tiling covers only the subvolume but makes use of image data outside the subvolume if it is available.
+
     Internally, axis aligned boundary boxes are specified as coordinate tuples of the form (x0,y0,z0,x1,y1,z1) (diagonal oposite corners that define a rectangular volume)
+    Coordinates may protrude from the image shape. Use a Canvas class to handle these cases when reading and writing to arrays.
     """
 
-    def __init__(self, image_shape: tuple,  output_shape=(132,132,132), input_shape=(220,220,220)):
+    def __init__(self, image_shape: tuple, tiling_subvolume = None,  output_shape=(132,132,132), input_shape=(220,220,220)):
         """
         Parameters
         ----------
         image_shape : tuple
-            the shape of the volume that should be tiled
+            the shape of the image volume for which a tiling is calculated
+        tiling_subvolume : None or tuple
+            the shape of the subvolume that should be tiled. If None is specified the tiling extends over the entire image_shape.
         output_shape : tuple
             shape of the segmentation output of the unet
         input_shape : tuple
             shape of the image input of the unet
         """
         super().__init__()
+
         self.image_shape = image_shape
+        # If the tiling shape is not supplied, assume that the tiling extends over the entire image
+        if tiling_subvolume is None:
+            self.tiling_subvolume = (0,0,0,) + self.image_shape # The entire image is given by the tuple (0,0,0,x_max,y_max,z_max)
+        else:
+            self.tiling_subvolume = tiling_subvolume
+
         # Store output and input shape of the unet and check for correct number of dimensions
         self.output_shape = output_shape
         self.input_shape = input_shape
         assert len(self.image_shape) == 3, 'Specify a single channel 3D image with format (x,y,z)'
+        assert len(self.tiling_subvolume) == 6, 'Specify a 3D tiling subvolume as coordinate tuple (x0,y0,z0,x1,y1,z1)'
         assert len(self.output_shape) == 3, 'Specify the extent of the output shape as (x,y,z)'
         assert len(self.input_shape) == 3, 'Specify the extent of the input shape as (x,y,z)'
         assert self.output_shape <= self.input_shape, 'The input shape cannot be smaller than the output shape'
         
         # Calculate the coordinate mesh of the tiling
-        # Each list goes up to the last multiple of tile_shape smaller than image_shape => endpoint excluded
+        # For each axis there are as many tiles as the number of output shapes that fit between the borders of the subvolume
         self.coords = []
         for d in range(3):
-            self.coords.append(list(range(0,self.image_shape[d],self.output_shape[d])))
+            self.coords.append(
+                list(range( self.tiling_subvolume[d], # subvolume start point in dimension d
+                            self.tiling_subvolume[d+3], # subvolume end point
+                            self.output_shape[d] )) # Output shape in this dimension 
+            )
 
         # Expose the shape of the tiling
         self.shape = [len(d) for d in self.coords]
@@ -234,6 +253,14 @@ class UnetTiling3D(Tiling):
         aabb = np.add(aabb,delta) # element wise addition
         return tuple(aabb)
 
+    def getInputVolume(self):
+        """Returns the axis alinged boundary box of the tilings input volume.
+        This possibly contains values that protrudes from the image shape. Use Canvas to handle this.
+        """
+        start_corner = self.getInputTile(0)[:3] # get the first corner of the first input tile
+        end_corner = self.getInputTile(len(self)-1)[3:] # get the second corner of the last input tile
+        return start_corner + end_corner
+
     def getAdjacentTiles(self, i : int) -> list:
         """Returns a list with the indices of adjacent tiles. (Rectangular tiles that share a face with the reference tile)
 
@@ -263,135 +290,6 @@ class UnetTiling3D(Tiling):
                 except AssertionError:
                     adjacent.append(None)
         return adjacent
-
-#%%
-class AbsoluteUnetTiling(Tiling):
-    def __init__(self, image_shape: tuple, tiling_area: tuple, output_shape=(132,132,132), input_shape=(220,220,220)):
-        """
-        Parameters
-        ----------
-        image_shape : tuple
-            the shape of the entire dataset that should be tiled
-        tiling_area : tuple
-            coordinates of the tiling area as an aabb (x0,y0,z0,x1,y1,z1)
-        output_shape : tuple
-            shape of the segmentation output of the unet
-        input_shape : tuple
-            shape of the image input of the unet
-        """
-        super().__init__()
-        self.image_shape = image_shape
-        self.tiling_area = tiling_area
-        # Store output and input shape of the unet and check for correct number of dimensions
-        self.output_shape = output_shape
-        self.input_shape = input_shape
-        assert len(self.image_shape) == 3, 'Specify a single channel 3D image with format (x,y,z)'
-        assert len(self.output_shape) == 3, 'Specify the extent of the output shape as (x,y,z)'
-        assert len(self.input_shape) == 3, 'Specify the extent of the input shape as (x,y,z)'
-        assert self.output_shape <= self.input_shape, 'The input shape cannot be smaller than the output shape'
-        assert len(self.tiling_area) == 6, 'Specify the tiling area as (x0,y0,z0,x1,y1,z1)'
-        
-        # calculate the difference between the input and ouput tiles for symmetric expansion
-        self.delta = np.subtract(self.input_shape,self.output_shape) // 2
-        
-        # Calculate the coordinate mesh of the tiling
-        # The tiling area is covered with output tiles.
-        # Each list goes up to the last multiple of output_shape smaller than the tiling area => endpoint excluded but last tile can protrude
-        self.coords = []
-        for d in range(3):
-            self.coords.append(list(range(self.tiling_area[d],self.tiling_area[d+3],self.output_shape[d])))
-
-        # Expose the shape of the tiling
-        self.shape = [len(d) for d in self.coords]
-
-        # calculate the input area that is used to evaluate the unet on the tiling_area
-        # the input area is clipped at the border of the image
-        input_start = self.tiling_area[:3] - self.delta # top left corner shifted by delta
-        input_start = np.max([input_start, np.zeros(3,)], axis=0) # Origo of the image is at (0,0,0)
-
-        input_end = np.array(self.tiling_area[:3]) + np.array(self.shape) * np.array(self.output_shape) + np.array(self.delta)
-        input_end = np.min([input_end, np.array(self.image_shape)], axis=0) # take end of input or border of image
-
-        self.input_area = np.concatenate([input_start, input_end])
-
-    def __len__(self):
-        return np.prod(self.shape)
-
-    def indexToCoordinates(self, i):
-        """Convert a tile index to tiling coordinates
-
-        Parameters
-        ----------
-        i : int
-            tile index
-
-        Returns
-        -------
-        x,y,z : int
-            the coordinates of the tile in the tiling grid
-        """     
-         # Sanity check
-        assert i >=0, 'index out of bounds'
-        assert i < len(self), 'index out of bounds'
-        # Convert index to the coordinates of the tile
-        x = i // (self.shape[1]*self.shape[2]) # number of elements that you skip by moving one position in dim 0
-        i = i % (self.shape[1]*self.shape[2])
-        y = i // self.shape[2]
-        z = i % self.shape[2]
-        return x,y,z
-
-    def coordinatesToIndex(self,x,y,z):
-        """Converts the coordinates of a tile in the tiling grid to it's index
-        """
-        assert x < self.shape[0] and x >= 0, 'Coordinates out of bounds'
-        assert y < self.shape[1] and y >= 0, 'Coordinates out of bounds'
-        assert z < self.shape[2] and z >= 0, 'Coordinates out of bounds'
-        i = x*self.shape[1]*self.shape[2]
-        i += y*self.shape[2]
-        i += z
-        return i
-
-    def getOutputTile(self, i):
-        """Returns an axis aligned boundary box defining the i-th output tile. 
-
-        Parameters
-        ----------
-        i : int
-            index of the output tile
-
-        Returns
-        -------
-        tuple
-            aabb coordinate tuple (x0,y0,z0,x1,y1,z1) (diagonal oposite corners that define a rectangular volume)
-        """
-        x,y,z = self.indexToCoordinates(i)
-        # assemble the coordinates of the target chunk
-        x0 = self.coords[0][x]
-        y0 = self.coords[1][y]
-        z0 = self.coords[2][z]
-        x1 = x0 + self.output_shape[0]
-        y1 = y0 + self.output_shape[1]
-        z1 = z0 + self.output_shape[2]
-        return (x0,y0,z0,x1,y1,z1)
-
-    def getInputTile(self, i):
-        """Returns the axis alinged boundary box of the i-th input tile.
-
-        Parameters
-        ----------
-        i : int
-            index of the input tile
-
-        Returns
-        -------
-        tuple
-             aabb coordinate tuple (x0,y0,z0,x1,y1,z1) (diagonal oposite corners that define a rectangular volume)
-        """
-        aabb = self.getOutputTile(i) # get the aabb of the corresponding input tile 
-        # we have to subtract delta from the inital coords and add it to the stop coords
-        delta = np.concatenate((-self.delta, self.delta))
-        aabb = np.add(aabb,delta) # element wise addition
-        return tuple(aabb)   
 
 #%%
 class OverlappingUnetTiling3D(UnetTiling3D):
@@ -459,7 +357,7 @@ class Canvas():
 
     def __init__(self, image):
         super().__init__()
-        assert len(image.shape) == 3,'Specify a 3D array'
+        assert len(image.shape) == 3,'Specify a 3D array, was ' + str(image.shape)
         self.image = image
         self.shape = self.image.shape
 
@@ -521,11 +419,34 @@ class Canvas():
         self.image[start[0]:stop[0],start[1]:stop[1],start[2]:stop[2]] = tile_cropped
 #%%
 class AbsoluteCanvas():
-    def __init__(self, image_shape, canvas_area, image):
+    def __init__(self, image_shape : tuple, canvas_area : tuple, image: np.array):
+        """Base class that handels read and write access to 3D volumes.
+        Axis aligned boundary boxes in format (x0,y0,z0,x1,y1,z1) are used to specify subvolumes.
+        If a subvolumes should be read that protrudes from the image, Canvas will mirror it at the border.
+        If a subvolume should be written that protrudes from the writing area tha input is cropped.
+    
+
+        Parameters
+        ----------
+        image_shape : tuple
+            shape of the entire image.  
+        canvas_area : tuple or None
+            axis aligned boundary box defining the subvolume to which read and write access are allowed. 
+            If None is specified, the canvas area extends over the entire image.
+        image : np.array
+            Image data or preallocated array to which will be written.
+        """
         super().__init__()
+        
+        # If no canvas area is specified we work on the entire image shape
+        if canvas_area is None:
+            canvas_area = (0,0,0,) + image_shape
+        
+        # Check that the supplied image array has the same shape as the subvolume that we have read / write access to
         assert len(image.shape) == 3,'Specify a 3D array'
         for d in range(3):
-            assert canvas_area[d+3] - canvas_area[d] == image.shape[d], 'The image must have the same extent as the canvas area'
+            assert canvas_area[d+3] - canvas_area[d] == image.shape[d], 'The image must have the same extent as the canvas area' +'\nfor d = {} canvas area was {} image shape was {}'.format(d,canvas_area[d+3] - canvas_area[d],image.shape[d])
+    
         self.image = image
         self.canvas_area = canvas_area
         self.image_shape = image_shape
@@ -561,7 +482,7 @@ class AbsoluteCanvas():
         return data
 
     def writeAABB(self, aabb, tile):
-        """Writes a rectangular tile of data to a position in the canvas specified by global coordinates
+        """Writes a rectangular tile of data to a position in the canvas specified by absolute coordinates
 
         Parameters
         ----------
@@ -595,21 +516,39 @@ class AbsoluteCanvas():
         self.image[start[0]:stop[0],start[1]:stop[1],start[2]:stop[2]] = tile_cropped
 #%%
 class UnetTiler3D():
+    def __init__(self, tiling: UnetTiling3D, image: Canvas, mask: Canvas):
+        """Construct a Utility class that manages input and output of 3D Unet tiles to image and mask arrays.
 
-    def __init__(self, image, mask=None, output_shape=(132,132,132), input_shape=(220,220,220)):
+        Parameters
+        ----------
+        tiling : UnetTiling
+            The tiling of the joint image and mask space. Possibly covering only a target subvolume.
+        image : Canvas
+            A canvas providing access to input image data.
+        mask : Canvas or None
+            A canvas providing access to ground truth mask data or to store the output segmentation data
         """
-        This class provides utility functions to apply a 3D unet to an arbitrary input volume.
+        self.tiling = tiling
+        self.image = image
+        self.mask = mask
+        # expose the shape of the tiling
+        self.shape = tiling.shape
 
-        Tiling logic:
+    @classmethod
+    def forEntireCongruentData(cls, image, mask=None, output_shape=(132,132,132), input_shape=(220,220,220)):
+        """
+        This function creates an instance of UnetTiler3D given a concrete image and optionally a mask tensor.
+        It is assumed that the tiling should extent over the entire input image.
+        Image and Mask arrays are assumed to be of the same size and congruent.
+        If a preexisting tensor is specified as the mask, it is overwritten. If no mask is specified, a new one is allocated as a numpy ndarray.
+
         The input volume is tiled with the output shape of the unet. 
         Each output tile is symmetrically expanded to the input shape to get the corresponding input for the unet.
         The tiles are ennumerated internally and can be accessed either by their coordinates in the rectangular tiling or their index.
         Internally, axis aligned boundary boxes are specified as coordinate tuples of the form (x0,y0,z0,x1,y1,z1) (diagonal oposite corners that define a rectangular volume)
-
         Image and Mask read/write:
         Tiles can be read from the image and written to the corresponding mask location with their index.
-        If a preexisting tensor is specified as the mask, it is overwritten. If no mask is specified, a new one is allocated as a numpy ndarray.
-
+        
         Parameters
         ----------
         image : image tensor
@@ -619,35 +558,33 @@ class UnetTiler3D():
         input_shape : tuple
             shape of the image input of the unet
         """
-        self.image = Canvas(image) # Use a canvas for i/o on the image
+        image_canvas = Canvas(image) # Use a canvas for i/o on the image
 
         # Allocate an array to assemble the mask in if not specified
         if mask is None:
-            self.mask = Canvas(np.zeros_like(image)) # Allocate a tensor where the segmentation mask is stored
+            mask_canvas = Canvas(np.zeros_like(image)) # Allocate a tensor where the segmentation mask is stored
         else:
-            assert self.image.shape == mask.shape, 'The mask and image array need to be of the same shape'
-            self.mask = Canvas(mask)
+            assert image.shape == mask.shape, 'The mask and image array need to be of the same shape'
+            mask_canvas = Canvas(mask)
 
         # Instantiate UnetTiling over image and mask
-        self.tiling = UnetTiling3D(image_shape=self.image.shape, output_shape=output_shape, input_shape=input_shape)
+        tiling = UnetTiling3D(image_shape=image.shape, tiling_subvolume= None, output_shape=output_shape, input_shape=input_shape)
 
-        # Expose the shape of the tiling
-        self.shape = self.tiling.shape
-    
+        # create and return an initialized instance of UnetTiler3D
+        return UnetTiler3D(tiling, image_canvas, mask_canvas)
+
     # Expose the number of tiles 
     def __len__(self):
         return np.prod(self.shape)
 
     def getSlice(self, index, outputOnly=False):
         """Get the i-th input tile of the image.
-
         Parameters
         ----------
         index : int
             the index of the image tile
         outputOnly : bool
             wheter the slice should be narrowed down to the output region only
-
         Returns
         -------
         3d tensor
@@ -664,14 +601,12 @@ class UnetTiler3D():
 
     def getMaskSlice(self, index, cropped=True):
         """Get the i-th output tile of the mask.
-
         Parameters
         ----------
         index : int
             the index of the mask tile
         cropped : bool
             wheter to extract the cropped (output) region of the mask tile or the whole input region (congruent to getSlice)
-
         Returns
         -------
         3d tensor
@@ -689,7 +624,6 @@ class UnetTiler3D():
     
     def writeSlice(self, index, tile):
         """Writes the i-th tile of the mask to it's corresponding position in the mask tensor.
-
         Parameters
         ----------
         index : int
@@ -711,22 +645,3 @@ class UnetTiler3D():
 
         return generatorFactory
 
-#%%
-class AbsoluteUnetTiler3D(UnetTiler3D):
-    
-    def __init__(self, tiling: AbsoluteUnetTiling, image: AbsoluteCanvas, mask: AbsoluteCanvas):
-        
-        assert tiling.image_shape == image.image_shape, 'Tiling and canvas need a reference system of the same shape'
-        area = np.array(tiling.tiling_area[3:])-np.array(tiling.tiling_area[:3])
-
-        self.tiling = tiling
-        self.image = image
-        # Allocate an array to assemble the mask in if not specified
-        if mask is None:
-            self.mask = AbsoluteCanvas(tiling.image_shape, tiling.tiling_area, np.zeros(area)) # Allocate a tensor where the segmentation mask is stored
-        
-        # Expose the shape of the tiling
-        self.shape = self.tiling.shape
-# %%
-
-# %%

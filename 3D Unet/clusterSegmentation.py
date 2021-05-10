@@ -12,8 +12,10 @@ import numpy as np
 import z5py
 import h5py
 
-module_path = '../tools'
+module_path = 'C:/Users/Linus Meienberg/Google Drive/Janelia/ImageSegmentation/'
 sys.path.append(module_path)
+sys.path.append(module_path+'3D Unet/')
+sys.path.append(module_path+'tools/')
 
 import tilingStrategy, preProcessing
 
@@ -23,29 +25,29 @@ import tilingStrategy, preProcessing
 
 
 # path to the input file (h5 or n5 image) where the large image is stored
-dataset_path = os.path.abspath("D:/Janelia/UnetTraining/test/A1N5/export.n5")
+dataset_path = os.path.abspath('D:/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5')
 #'/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.h5'
 #'/nrs/dickson/lillvis/temp/linus/Unet_Evaluation/RegionCrops/Q1.h5'
 
 # path of the input dataset within the file system of the h5 container
-input_key = 'setup1/timepoint0/s0'
+input_key = 't0/channel1'
 #'/mnt/d/Janelia/UnetTraining/RegionCrops/Q1/Q1.n5'
 # use z5py for n5 format
 #dataset = z5py.File(dataset_path)
 # use h5py for h5 format
 
 # directory for report files
-output_directory = "D:\\Janelia\\UnetTraining\\test\\A1N5\\out\\"
+output_directory = "D:/Janelia/testSegmentationMultiWorker/"
 #"/mnt/d/Janelia/UnetTraining/test/" 
 
 # Path to the output file where segmented output is written to
-output_path = "D:\\Janelia\\UnetTraining\\test\\A1N5\\out\\out.h5"
+output_path = "D:/Janelia/testSegmentationMultiWorker/Q1seg.n5"
 #"/mnt/d/Janelia/UnetTraining/test/test.h5"
 #"/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
 #"/mnt/d/Janelia/UnetTraining/test.h5"
 
 # path of the output dataset within the file system of the h5 container
-output_key = "out1"
+output_key = "test"
 
 # Infer file types from file extension
 input_filetype = os.path.splitext(dataset_path)[1] # should be ".h5" or ".n5" depending on filetype that is read in.
@@ -139,7 +141,6 @@ if output_filetype == ".n5":
 # %% Dispatch jobs on subvolumes
 jobs = []
 for i in range(len(tiling)):
-#for i in range(7,11):
     tile = tiling.getTile(i)
     tile = str(tile).replace('(','').replace(')','')
     imshape = str(image_shape).replace('(','').replace(')','')
@@ -149,13 +150,18 @@ for i in range(len(tiling)):
     jobname = job_prefix + str(i)
     logfile = jobname + '.log'
 
-    """
+    
     # debug on home desktop
     arglist = ['python','volumeSegmentation.py','-l',tile,'--image_shape',imshape,'--scaling',str(mean_sf)]
     print(str(arglist))
-    #jobs.append(subprocess.Popen(arglist))
-    """
+    with open(logfile, mode="w") as f:
+        jobs.append(subprocess.Popen(arglist, stdout = f, stderr = f))
+        # Debug only (wait until subprocess is finished)
+        jobs[-1].wait()
+
     
+    
+    """
     # Construct command line argument for janelia's cluster job submission system
     arglist = ['bsub','-J',jobname,'-n','5','-gpu', '\"num=1\"', '-q', 'gpu_rtx', '-o', logfile, 'python', 'volumeSegmentation.py']
     if(precalculateScalingFactor):
@@ -167,7 +173,7 @@ for i in range(len(tiling)):
     jobs.append(
         subprocess.Popen(arglist)
     
-        )
+        )"""
 
 
 # %%

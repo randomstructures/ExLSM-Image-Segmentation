@@ -136,7 +136,7 @@ for region in regions[:1]:
 
     # Use a Unet Tiler to divide the region into a grid of training examples. They are enummerated by the tiler class and can be referenced by their index.
     # 
-    tiler = tilingStrategy.UnetTiler3D(image=im, mask=msk, output_shape=(132,132,132), input_shape=(220,220,220))
+    tiler = tilingStrategy.UnetTiler3D.forEntireCongruentData(image=im, mask=msk, output_shape=(132,132,132), input_shape=(220,220,220))
     # get a list of random indices from the region
     indices = Dataset3D.getRandomIndices(tiler, n_samples=200) # sample random tiles from the image volume
 

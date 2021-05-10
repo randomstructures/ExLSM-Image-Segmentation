@@ -1,4 +1,5 @@
-""" This script applies a pretrained model file to a large image volume saved in hdf5 format
+""" 
+This script applies a pretrained model file to a large image volume saved in hdf5 or n5 format.
 """
 
 #%% Imports 
@@ -12,9 +13,10 @@ import os, sys, time
 
 # The path where custom modules are located
 #module_path = '/nrs/dickson/lillvis/temp/linus/GPU_Cluster/modules/'
-module_path = '../tools/'
-
+module_path = 'C:/Users/Linus Meienberg/Google Drive/Janelia/ImageSegmentation/'
 sys.path.append(module_path)
+sys.path.append(module_path+'3D Unet/')
+sys.path.append(module_path+'tools/')
 
 import tilingStrategy, metrics
 import utilities, model
@@ -39,8 +41,8 @@ image_channel_key = 't0/channel1'
 # Specify the file name and the group name under which the segmentation output should be saved (this can also be the input file to which a new dataset is added)
 #output_directory = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/"
 #output_path = "/nrs/dickson/lillvis/temp/linus/GPU_Cluster/20201118_MultiWorkerSegmentation/Q1_mws.h5"
-output_directory = "D:/Janelia/UnetTraining/20210222_ModelCapacity/test/" # directory for report files
-output_path = "D:/Janelia/UnetTraining/20210222_ModelCapacity/test/Q1seg.n5" # path to the output file 
+output_directory = "D:/Janelia/testSegmentationMultiWorker/" # directory for report files
+output_path = "D:/Janelia/testSegmentationMultiWorker/Q1seg.n5" # path to the output file 
 output_channel_key = 'test'
 # Specify wheter to output a binary segmentation mask or an object probability map
 binary = False
@@ -184,18 +186,33 @@ def main(argv):
     #%%
     # Load image or image subvolume into working memory
     if(work_on_subvolume):
-         tiling_area = np.array((location[0],location[2],location[4],location[1],location[3],location[5])) # x0,x1,y0,y1,z0,z1 -> x0,y0,z0,x1,y1,z1
+        # Parse the tiling subvolume from slice to aabb notation
+        tiling_subvolume_aabb = np.array((location[0],location[2],location[4],location[1],location[3],location[5])) # x0,x1,y0,y1,z0,z1 -> x0,y0,z0,x1,y1,z1
+
+        # Calculate the shape of the subvolume
+        tiling_subvolume_shape = tiling_subvolume_aabb[3:] - tiling_subvolume_aabb[:3] # (x1,y1,z1) - (x0,y0,z0)
+
         # Create a tiling of the subvolume using absolute coordinates
-        print("tiling area " + str(tiling_area))
-        print("image_shape " + str(image_shape))
-        tiling = tilingStrategy.AbsoluteUnetTiling(image_shape, tiling_area, model_output_shape, model_input_shape)
-        # Load the input area required to evaluate the input tiles of the subvolume tiling
-        aabb = tiling.input_area # x0,y0,z0,x1,y1,z1
-        input_slice = (aabb[0],aabb[3],aabb[1],aabb[4],aabb[2],aabb[5]) # x0,y0,z0,x1,y1,z1 -> x0,x1,y0,y1,z0,z1
+        print("targeted subvolume for segmentation: " + str(tiling_subvolume_aabb))
+        print("global image shape : " + str(image_shape))
+        tiling = tilingStrategy.UnetTiling3D(image_shape, tiling_subvolume_aabb, model_output_shape, model_input_shape )
+
+        # Load the input area required to evaluate the output tiles of the subvolume tiling
+        input_volume_aabb = np.array(tiling.getInputVolume()) # aabb of input volume as x0,y0,z0,x1,y1,z1
+
+        # clip the aabb if it protrudes from the canvas
+        start = [ np.max([0, d]) for d in input_volume_aabb[:3] ] # origo is at (0,0,0)
+        stop = [ np.min([image_shape[i], input_volume_aabb[i+3]]) for i in range(3) ] # max extent is image shape
+        adjusted_input_volume_aabb = np.array(start + stop)
+
+        adjusted_input_volume_shape = adjusted_input_volume_aabb[3:] - adjusted_input_volume_aabb[:3]
+        adjusted_input_volume_slice = (adjusted_input_volume_aabb[0],adjusted_input_volume_aabb[3],adjusted_input_volume_aabb[1],adjusted_input_volume_aabb[4],adjusted_input_volume_aabb[2],adjusted_input_volume_aabb[5]) # x0,y0,z0,x1,y1,z1 -> x0,x1,y0,y1,z0,z1 (Convert aabb to array slice)
+        print('Fetching data from input slice ' + str(adjusted_input_volume_slice))
+
         if(input_filetype == ".h5"):
-            image = parallel_hdf5_read(image_path, image_channel_key, location)
+            image = parallel_hdf5_read(image_path, image_channel_key, adjusted_input_volume_slice)
         elif(input_filetype == ".n5"):
-            image = parallel_n5_read(  image_path, image_channel_key, location)
+            image = parallel_n5_read( image_path, image_channel_key, adjusted_input_volume_slice)
         else:
             raise(ValueError("Filetype " + input_filetype + " not supported."))
 
@@ -204,7 +221,7 @@ def main(argv):
         if(input_filetype == ".h5"):
             print('Opening hdf5 file ' + image_path)
             image_h5 = h5py.File(image_path, mode='r+') # Open h5 file with read / write access
-            print(image_h5.keys()) # Show Groups (Folders) in root Group of the h5 archive
+            #print(image_h5.keys()) # Show Groups (Folders) in root Group of the h5 archive
             image = image_h5[image_channel_key] # Open the image dataset
             image = image[...] # Copy content to working memory
             # Close image dataset
@@ -241,37 +258,20 @@ def main(argv):
 
     #%%
     if(work_on_subvolume):
-        # Create an absolute Canvas from the input region
-        input_canvas = tilingStrategy.AbsoluteCanvas(image_shape, tiling_area, image)
+        # Create an absolute Canvas from the input region (this is the targeted output expanded by adjacent areas that are relevant for segmentation)
+        input_canvas = tilingStrategy.AbsoluteCanvas(image_shape, canvas_area = adjusted_input_volume_aabb, image=image)
+        # Create an empty absolute Canvas for the targeted output region of the mask
+        output_canvas = tilingStrategy.AbsoluteCanvas(image_shape, canvas_area=tiling_subvolume_aabb, image=np.zeros(shape=tiling_subvolume_shape))
         # Create the unet tiler instance
-        tiler = tilingStrategy.AbsoluteUnetTiler3D(tiling, input_canvas, mask=None)
+        tiler = tilingStrategy.UnetTiler3D(tiling,input_canvas,output_canvas)
     else:
+        # Work on the entire input image and assemble a congruent mask
         # Set up a unet tiler for the input image
         # with mask = None, a new array with the same size as the image is allocated by the UnetTiler3D class
-        tiler = tilingStrategy.UnetTiler3D(image, mask=None, output_shape=model_output_shape, input_shape=model_input_shape)
+        tiler = tilingStrategy.UnetTiler3D.forEntireCongruentData(image,mask=None,output_shape=model_output_shape, input_shape=model_input_shape)
 
 
     #%% Perform segmentation
-    """
-    start = time.time()
-    for i in tqdm(range(len(tiler)), desc='tiles processed'): # gives feedback on progress of for loop
-        # Read input slice from volume
-        # processing was applied globaly
-        #input_slice = preprocessImage(tiler.getSlice(i), preprocessing_mean, preprocessing_std)
-        input_slice = tiler.getSlice(i)
-        # Add batch and channel dimension and feed to unet
-        output_slice = unet.predict(input_slice[np.newaxis,:,:,:,np.newaxis])
-        # Convert logits to binary segmentation mask or object probability map
-        if(binary):
-            output_mask = np.argmax(output_slice, axis=-1)[0,...] # use argmax on channels and remove batch dimension
-        else:
-            output_mask = tf.nn.softmax(output_slice, axis=-1)[0,...,1] # use softmax on channels, take object cannel and remove batch dimension
-        # Write slice to canvas
-        tiler.writeSlice(i, output_mask)
-    end = time.time()
-    print('\ntook {:.1f} s for {} iterations'.format(end-start,len(tiler)))
-    """
-
     def preprocess_dataset(x):
         x = tf.expand_dims(x, axis=-1) # The unet expects the input data to have an additional channel axis.
         return x
@@ -321,6 +321,7 @@ def main(argv):
             parallel_n5_write(tiler.mask.image, output_path, output_channel_key, location)
         else:
             raise(ValueError("Filetype " + output_filetype + " not supported."))
+    
     # Single worker mode
     else:
         if(output_filetype == ".h5"):
@@ -353,4 +354,4 @@ def main(argv):
 # %%
 if __name__ == "__main__":
     main(sys.argv[1:])
-# %%
+
