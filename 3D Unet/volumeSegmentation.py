@@ -184,7 +184,7 @@ def main(argv):
     #%%
     # Load image or image subvolume into working memory
     if(work_on_subvolume):
-        tiling_area = np.array((location[0],location[2],location[4],location[1],location[3],location[5])) # x0,x1,y0,y1,z0,z1 -> x0,y0,z0,x1,y1,z1
+         tiling_area = np.array((location[0],location[2],location[4],location[1],location[3],location[5])) # x0,x1,y0,y1,z0,z1 -> x0,y0,z0,x1,y1,z1
         # Create a tiling of the subvolume using absolute coordinates
         print("tiling area " + str(tiling_area))
         print("image_shape " + str(image_shape))

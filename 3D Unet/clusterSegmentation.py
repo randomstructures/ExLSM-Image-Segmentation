@@ -161,6 +161,7 @@ for i in range(len(tiling)):
     if(precalculateScalingFactor):
         arglist.extend(['--scaling', str(mean_sf)])
     arglist.extend(['-l', tile])
+    arglist.extend(['--image_shape', imshape])
     
     print("created job : " + str(arglist))
     jobs.append(
