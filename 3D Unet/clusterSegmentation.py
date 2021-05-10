@@ -150,7 +150,7 @@ for i in range(len(tiling)):
     jobname = job_prefix + str(i)
     logfile = jobname + '.log'
 
-    
+    """
     # debug on home desktop
     arglist = ['python','volumeSegmentation.py','-l',tile,'--image_shape',imshape,'--scaling',str(mean_sf)]
     print(str(arglist))
@@ -158,10 +158,8 @@ for i in range(len(tiling)):
         jobs.append(subprocess.Popen(arglist, stdout = f, stderr = f))
         # Debug only (wait until subprocess is finished)
         jobs[-1].wait()
-
-    
-    
     """
+    
     # Construct command line argument for janelia's cluster job submission system
     arglist = ['bsub','-J',jobname,'-n','5','-gpu', '\"num=1\"', '-q', 'gpu_rtx', '-o', logfile, 'python', 'volumeSegmentation.py']
     if(precalculateScalingFactor):
@@ -172,8 +170,7 @@ for i in range(len(tiling)):
     print("created job : " + str(arglist))
     jobs.append(
         subprocess.Popen(arglist)
-    
-        )"""
+        )
 
 
 # %%
